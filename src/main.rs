@@ -9,11 +9,14 @@ extern crate rpassword;
 extern crate tokio_core;
 extern crate tokio_io;
 extern crate tokio_signal;
+extern crate url;
+#[macro_use]
+extern crate serde_json;
 
 use crypto::digest::Digest;
 use crypto::sha1::Sha1;
 use env_logger::{fmt, Builder};
-use futures::sync::mpsc::Receiver;
+use futures::sync::mpsc::UnboundedReceiver;
 use futures::{Async, Future, Poll, Stream};
 use std::env;
 use std::io::{self, stderr, Write};
@@ -23,6 +26,7 @@ use std::process::exit;
 use std::str::FromStr;
 use tokio_core::reactor::{Core, Handle};
 use tokio_io::IoStream;
+use url::Url;
 
 use librespot::core::authentication::{get_credentials, Credentials};
 use librespot::core::cache::Cache;
@@ -38,8 +42,11 @@ use librespot::playback::mixer::{self, Mixer};
 use librespot::playback::player::Player;
 
 use librespot::core::events::Event;
-mod player_event_handler;
-use player_event_handler::run_program_on_events;
+// mod event_hooks;
+// use event_hooks::handle_events;
+
+mod meta_pipe;
+use meta_pipe::{MetaPipe, MetaPipeConfig};
 
 include!(concat!(env!("OUT_DIR"), "/version.rs"));
 
@@ -67,7 +74,8 @@ fn setup_logging(verbose: bool) {
             log::Level::Trace | log::Level::Debug => {
                 module_path = record.module_path().unwrap_or("vollibrespot");
                 module_style.set_color(fmt::Color::Yellow).set_bold(true);
-                level_style.set_color(fmt::Color::Green) },
+                level_style.set_color(fmt::Color::Green)
+            }
             log::Level::Info => level_style.set_color(fmt::Color::White),
             log::Level::Warn => level_style.set_color(fmt::Color::Yellow),
             log::Level::Error => level_style.set_color(fmt::Color::Red),
@@ -126,6 +134,7 @@ struct Setup {
     player_config: PlayerConfig,
     session_config: SessionConfig,
     connect_config: ConnectConfig,
+    meta_config: MetaPipeConfig,
     credentials: Option<Credentials>,
     enable_discovery: bool,
     zeroconf_port: u16,
@@ -157,6 +166,8 @@ fn setup(args: &[String]) -> Setup {
         .optflag("v", "verbose", "Enable verbose output")
         .optopt("u", "username", "Username to sign in with", "USERNAME")
         .optopt("p", "password", "Password", "PASSWORD")
+        .optopt("", "proxy", "HTTP proxy to use when connecting", "PROXY")
+        .optopt("", "ap-port", "Connect to AP with specified port. If no AP with that port are present fallback AP will be used. Available ports are usually 80, 443 and 4070", "AP_PORT")
         .optflag("", "disable-discovery", "Disable discovery mode")
         .optopt(
             "",
@@ -198,6 +209,12 @@ fn setup(args: &[String]) -> Setup {
             "",
             "linear-volume",
             "increase volume linear instead of logarithmic.",
+        )
+        .optopt(
+            "",
+            "metadata-port",
+            "The port the metadata pipe uses.",
+            "METADATA_PORT",
         );
 
     let matches = match opts.parse(&args[1..]) {
@@ -211,13 +228,13 @@ fn setup(args: &[String]) -> Setup {
     let verbose = matches.opt_present("verbose");
     setup_logging(verbose);
     info!(
-        "vollibrespot {} ({}) -- librespot {} ({})",
+        "vollibrespot {} {} (librespot {} {}) -- Built On {}",
         short_sha(),
-        short_now(),
+        commit_date(),
         version::short_sha(),
-        version::short_now(),
+        version::commit_date(),
+        short_now()
     );
-
 
     let backend_name = matches.opt_str("backend");
     if backend_name == Some("?".into()) {
@@ -232,15 +249,22 @@ fn setup(args: &[String]) -> Setup {
     let mixer_name = matches.opt_str("mixer");
     let mixer = mixer::find(mixer_name.as_ref()).expect("Invalid mixer");
 
+    let use_audio_cache = !matches.opt_present("disable-audio-cache");
+
+    let cache = matches
+        .opt_str("c")
+        .map(|cache_location| Cache::new(PathBuf::from(cache_location), use_audio_cache));
+
     let initial_volume = matches
         .opt_str("initial-volume")
         .map(|volume| {
-            let volume = volume.parse::<i32>().unwrap();
-            if volume < 0 || volume > 100 {
+            let volume = volume.parse::<u16>().unwrap();
+            if volume > 100 {
                 panic!("Initial volume must be in the range 0-100");
             }
-            volume * 0xFFFF / 100
+            (volume as i32 * 0xFFFF / 100) as u16
         })
+        .or_else(|| cache.as_ref().and_then(Cache::volume))
         .unwrap_or(0x8000);
 
     let zeroconf_port = matches
@@ -278,6 +302,26 @@ fn setup(args: &[String]) -> Setup {
         SessionConfig {
             user_agent: version::version_string(),
             device_id: device_id,
+            proxy: matches.opt_str("proxy").or(std::env::var("http_proxy").ok()).map(
+                |s| {
+                    match Url::parse(&s) {
+                Ok(url) => {
+                    if url.host().is_none() || url.port().is_none() {
+                        panic!("Invalid proxy url, only urls on the format \"http://host:port\" are allowed");
+                    }
+
+                    if url.scheme() != "http" {
+                        panic!("Only unsecure http:// proxies are supported");
+                    }
+                    url
+                },
+                Err(err) => panic!("Invalid proxy url: {}, only urls on the format \"http://host:port\" are allowed", err)
+            }
+                },
+            ),
+            ap_port: matches
+                .opt_str("ap-port")
+                .map(|port| port.parse::<u16>().expect("Invalid port")),
         }
     };
 
@@ -313,6 +357,26 @@ fn setup(args: &[String]) -> Setup {
         }
     };
 
+    let meta_config = {
+        let port = matches
+            .opt_str("metadata-port")
+            .map(|port| port.parse::<u16>().unwrap())
+            .unwrap_or(5030);
+        let version = format!(
+            "vollibrespot {} {} (librespot {} {}) -- Built On {}",
+            short_sha(),
+            commit_date(),
+            version::short_sha(),
+            version::commit_date(),
+            short_now()
+        );
+
+        MetaPipeConfig {
+            port: port,
+            version: version,
+        }
+    };
+
     let enable_discovery = !matches.opt_present("disable-discovery");
 
     Setup {
@@ -321,6 +385,7 @@ fn setup(args: &[String]) -> Setup {
         session_config: session_config,
         player_config: player_config,
         connect_config: connect_config,
+        meta_config: meta_config,
         credentials: credentials,
         device: device,
         enable_discovery: enable_discovery,
@@ -335,6 +400,7 @@ struct Main {
     player_config: PlayerConfig,
     session_config: SessionConfig,
     connect_config: ConnectConfig,
+    meta_config: MetaPipeConfig,
     backend: fn(Option<String>) -> Box<Sink>,
     device: Option<String>,
     mixer: fn() -> Box<Mixer>,
@@ -352,7 +418,8 @@ struct Main {
     player_event_program: Option<String>,
 
     session: Option<Session>,
-    event_channel: Option<Receiver<Event>>,
+    event_channel: Option<UnboundedReceiver<Event>>,
+    meta_pipe: Option<MetaPipe>,
 }
 
 impl Main {
@@ -363,6 +430,7 @@ impl Main {
             session_config: setup.session_config,
             player_config: setup.player_config,
             connect_config: setup.connect_config,
+            meta_config: setup.meta_config,
             backend: setup.backend,
             device: setup.device,
             mixer: setup.mixer,
@@ -378,6 +446,7 @@ impl Main {
 
             event_channel: None,
             session: None,
+            meta_pipe: None,
         };
 
         if setup.enable_discovery {
@@ -432,9 +501,10 @@ impl Future for Main {
                 let mixer = (self.mixer)();
                 let player_config = self.player_config.clone();
                 let connect_config = self.connect_config.clone();
+                let meta_config = self.meta_config.clone();
 
                 // For event hooks
-                let (event_sender, event_receiver) = futures::sync::mpsc::channel::<Event>(3);
+                let (event_sender, event_receiver) = futures::sync::mpsc::unbounded::<Event>();
 
                 let audio_filter = mixer.get_audio_filter();
                 let backend = self.backend;
@@ -446,17 +516,16 @@ impl Future for Main {
                     move || (backend)(device),
                 );
 
-                let (spirc, spirc_task) = Spirc::new(
-                    connect_config,
-                    session.clone(),
-                    player,
-                    mixer,
-                    event_sender.clone(),
-                );
+                let (spirc, spirc_task) =
+                    Spirc::new(connect_config, session.clone(), player, mixer, event_sender);
+
+                let meta_pipe = MetaPipe::new(meta_config, session.clone(), event_receiver);
+
                 self.spirc = Some(spirc);
                 self.spirc_task = Some(spirc_task);
                 self.session = Some(session);
-                self.event_channel = Some(event_receiver);
+                // self.event_channel = Some(event_receiver);
+                self.meta_pipe = Some(meta_pipe);
 
                 progress = true;
             }
@@ -466,6 +535,11 @@ impl Future for Main {
                     if let Some(ref spirc) = self.spirc {
                         spirc.shutdown();
                     }
+
+                    if let Some(ref meta_pipe) = self.meta_pipe {
+                        drop(meta_pipe);
+                    }
+
                     self.shutdown = true;
                 } else {
                     return Ok(Async::Ready(()));
@@ -484,14 +558,14 @@ impl Future for Main {
                 }
             }
 
-            if let Some(ref mut event_channel) = self.event_channel {
-                if let Async::Ready(Some(event)) = event_channel.poll().unwrap() {
-                    info!("Event: {:?}", event);
-                    if let Some(ref program) = self.player_event_program {
-                        run_program_on_events(event, program);
-                    }
-                }
-            }
+            // if let Some(ref mut meta_task) = self.meta_task {
+            //     if let Async::Ready(()) = meta_task.poll().unwrap() {
+            //         return Ok(Async::Ready(()));
+            //     }
+            //     // if let Async::Ready(Some(event)) = event_channel.poll().unwrap() {
+            //     //     // handle_events(event, self.session.clone().unwrap());
+            //     // }
+            // }
 
             if !progress {
                 return Ok(Async::NotReady);
