@@ -6,7 +6,8 @@ use librespot::metadata::{Album, Artist, Metadata, Track};
 use serde_json::Value;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 //
-use futures::sync::mpsc::UnboundedReceiver;
+// use futures::sync::mpsc::UnboundedReceiver;
+use std::sync::mpsc::{Receiver, TryRecvError};
 use futures::{Future, Stream};
 use std::thread;
 
@@ -51,7 +52,7 @@ pub struct MetaPipe {
 struct MetaPipeThread {
     session: Session,
     config: MetaPipeConfig,
-    event_rx: UnboundedReceiver<Event>,
+    event_rx: Receiver<Event>,
     udp_socket: Option<UdpSocket>,
 }
 
@@ -60,7 +61,7 @@ impl MetaPipe {
     pub fn new(
         config: MetaPipeConfig,
         session: Session,
-        event_rx: UnboundedReceiver<Event>,
+        event_rx: Receiver<Event>,
     ) -> (MetaPipe) {
         let handle = thread::spawn(move || {
             debug!("Starting new MetaPipe[{}]", session.session_id());
@@ -84,12 +85,19 @@ impl MetaPipeThread {
     fn run(mut self) {
         self.init_socket();
         loop {
-            let (event, event_rx) = self.event_rx.into_future().wait().unwrap();
-            self.event_rx = event_rx;
-            match event {
-                Some(event) => self.handle_event(event),
-                None => return,
-            }
+                match  self.event_rx.try_recv() {
+                    Ok(event) => {
+                        info!("Event: {:?}", event)},
+                    Err(TryRecvError::Empty) => (),
+                    Err(TryRecvError::Disconnected) => return,
+                }
+            // let (event, event_rx) = self.event_rx.into_future().wait().unwrap();
+            // self.event_rx = event_rx;
+            // match event {
+            //     Some(event) => self.handle_event(event),
+            //     None => return,
+            // }
+
         }
     }
 
@@ -181,8 +189,8 @@ impl Drop for MetaPipe {
     }
 }
 
-// impl Drop for MetaPipeThread {
-//     fn drop(&mut self) {
-//         debug!("drop MetaPipeThread[{}]", self.session.session_id());
-//     }
-// }
+impl Drop for MetaPipeThread {
+    fn drop(&mut self) {
+        debug!("drop MetaPipeThread[{}]", self.session.session_id());
+    }
+}

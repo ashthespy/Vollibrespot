@@ -16,7 +16,8 @@ extern crate serde_json;
 use crypto::digest::Digest;
 use crypto::sha1::Sha1;
 use env_logger::{fmt, Builder};
-use futures::sync::mpsc::UnboundedReceiver;
+// use futures::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver,channel};
 use futures::{Async, Future, Poll, Stream};
 use std::env;
 use std::io::{self, stderr, Write};
@@ -418,7 +419,7 @@ struct Main {
     player_event_program: Option<String>,
 
     session: Option<Session>,
-    event_channel: Option<UnboundedReceiver<Event>>,
+    event_channel: Option<Receiver<Event>>,
     meta_pipe: Option<MetaPipe>,
 }
 
@@ -504,7 +505,8 @@ impl Future for Main {
                 let meta_config = self.meta_config.clone();
 
                 // For event hooks
-                let (event_sender, event_receiver) = futures::sync::mpsc::unbounded::<Event>();
+                // let (event_sender, event_receiver) = futures::sync::mpsc::unbounded::<Event>();
+                let (event_sender, event_receiver) = channel();
 
                 let audio_filter = mixer.get_audio_filter();
                 let backend = self.backend;
@@ -536,9 +538,9 @@ impl Future for Main {
                         spirc.shutdown();
                     }
 
-                    if let Some(ref meta_pipe) = self.meta_pipe {
-                        drop(meta_pipe);
-                    }
+                    // if let Some(ref meta_pipe) = self.meta_pipe {
+                    //     drop(meta_pipe);
+                    // }
 
                     self.shutdown = true;
                 } else {
