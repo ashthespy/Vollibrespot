@@ -12,12 +12,13 @@ extern crate tokio_signal;
 extern crate url;
 #[macro_use]
 extern crate serde_json;
+extern crate protobuf;
+
 
 use crypto::digest::Digest;
 use crypto::sha1::Sha1;
 use env_logger::{fmt, Builder};
 // use futures::sync::mpsc::Receiver;
-use std::sync::mpsc::{Receiver,channel};
 use futures::{Async, Future, Poll, Stream};
 use std::env;
 use std::io::{self, stderr, Write};
@@ -25,6 +26,7 @@ use std::mem;
 use std::path::PathBuf;
 use std::process::exit;
 use std::str::FromStr;
+use std::sync::mpsc::{channel, Receiver};
 use tokio_core::reactor::{Core, Handle};
 use tokio_io::IoStream;
 use url::Url;
@@ -39,7 +41,7 @@ use librespot::connect::discovery::{discovery, DiscoveryStream};
 use librespot::connect::spirc::{Spirc, SpircTask};
 use librespot::playback::audio_backend::{self, Sink, BACKENDS};
 use librespot::playback::config::{Bitrate, PlayerConfig};
-use librespot::playback::mixer::{self, Mixer};
+use librespot::playback::mixer::{self, Mixer, MixerConfig};
 use librespot::playback::player::Player;
 
 use librespot::core::events::Event;
@@ -129,12 +131,13 @@ struct Setup {
     backend: fn(Option<String>) -> Box<Sink>,
     device: Option<String>,
 
-    mixer: fn() -> Box<Mixer>,
+    mixer: fn(Option<MixerConfig>) -> Box<Mixer>,
 
     cache: Option<Cache>,
     player_config: PlayerConfig,
     session_config: SessionConfig,
     connect_config: ConnectConfig,
+    mixer_config: MixerConfig,
     meta_config: MetaPipeConfig,
     credentials: Option<Credentials>,
     enable_discovery: bool,
@@ -183,6 +186,29 @@ fn setup(args: &[String]) -> Setup {
             "DEVICE",
         )
         .optopt("", "mixer", "Mixer to use", "MIXER")
+        .optopt(
+            "m",
+            "mixer-name",
+            "Alsa mixer name, e.g \"PCM\" or \"Master\". Defaults to 'PCM'",
+            "MIXER_NAME",
+        )
+        .optopt(
+            "",
+            "mixer-card",
+            "Alsa mixer card, e.g \"hw:0\" or similar from `aplay -l`. Defaults to 'default' ",
+            "MIXER_CARD",
+        )
+        .optopt(
+            "",
+            "mixer-index",
+            "Alsa mixer index, Index of the cards mixer. Defaults to 0",
+            "MIXER_INDEX",
+        )
+        .optflag(
+            "",
+            "mixer-linear-volume",
+            "Disable alsa's mapped volume scale (cubic). Default false",
+        )
         .optopt(
             "",
             "initial-volume",
@@ -249,6 +275,12 @@ fn setup(args: &[String]) -> Setup {
 
     let mixer_name = matches.opt_str("mixer");
     let mixer = mixer::find(mixer_name.as_ref()).expect("Invalid mixer");
+    let mixer_config = MixerConfig {
+            card:  matches.opt_str("mixer-card").unwrap_or(String::from("default")),
+            mixer: matches.opt_str("mixer-name").unwrap_or(String::from("PCM")),
+            index: matches.opt_str("mixer-index").map(|index| index.parse::<u32>().unwrap()).unwrap_or(0),
+            mapped_volume: !matches.opt_present("mixer-linear-volume"),
+    };
 
     let use_audio_cache = !matches.opt_present("disable-audio-cache");
 
@@ -392,6 +424,7 @@ fn setup(args: &[String]) -> Setup {
         enable_discovery: enable_discovery,
         zeroconf_port: zeroconf_port,
         mixer: mixer,
+        mixer_config: mixer_config,
         player_event_program: matches.opt_str("onevent"),
     }
 }
@@ -404,7 +437,8 @@ struct Main {
     meta_config: MetaPipeConfig,
     backend: fn(Option<String>) -> Box<Sink>,
     device: Option<String>,
-    mixer: fn() -> Box<Mixer>,
+    mixer: fn(Option<MixerConfig>) -> Box<Mixer>,
+    mixer_config: MixerConfig,
     handle: Handle,
 
     discovery: Option<DiscoveryStream>,
@@ -435,6 +469,8 @@ impl Main {
             backend: setup.backend,
             device: setup.device,
             mixer: setup.mixer,
+            mixer_config: setup.mixer_config,
+
 
             connect: Box::new(futures::future::empty()),
             discovery: None,
@@ -499,7 +535,8 @@ impl Future for Main {
             if let Async::Ready(session) = self.connect.poll().unwrap() {
                 self.connect = Box::new(futures::future::empty());
                 let device = self.device.clone();
-                let mixer = (self.mixer)();
+                let mixer_config = self.mixer_config.clone();
+                let mixer = (self.mixer)(Some(mixer_config));
                 let player_config = self.player_config.clone();
                 let connect_config = self.connect_config.clone();
                 let meta_config = self.meta_config.clone();
@@ -538,10 +575,6 @@ impl Future for Main {
                         spirc.shutdown();
                     }
 
-                    // if let Some(ref meta_pipe) = self.meta_pipe {
-                    //     drop(meta_pipe);
-                    // }
-
                     self.shutdown = true;
                 } else {
                     return Ok(Async::Ready(()));
@@ -560,13 +593,15 @@ impl Future for Main {
                 }
             }
 
-            // if let Some(ref mut meta_task) = self.meta_task {
-            //     if let Async::Ready(()) = meta_task.poll().unwrap() {
-            //         return Ok(Async::Ready(()));
+            // if let Some(ref mut event_channel) = self.event_channel {
+            //     match  event_channel.try_recv() {
+            //         Ok(event) => {
+            //             if let Some(ref program) = self.player_event_program {
+            //                    run_program_on_events(event, program);
+            //                }},
+            //         Err(TryRecvError::Empty) => progress = true,
+            //         Err(TryRecvError::Disconnected) => (),
             //     }
-            //     // if let Async::Ready(Some(event)) = event_channel.poll().unwrap() {
-            //     //     // handle_events(event, self.session.clone().unwrap());
-            //     // }
             // }
 
             if !progress {
