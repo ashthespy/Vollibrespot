@@ -90,7 +90,7 @@ fn setup_logging(verbose: bool) {
         writeln!(
             buf,
             "{} {}: {}",
-            base_style.value("vollibrespot"),
+            base_style.value("[Vollibrespot]"),
             module_style.value(module_path),
             level_style.value(record.args())
         )
@@ -106,11 +106,9 @@ fn setup_logging(verbose: bool) {
         }
         Err(_) => {
             if verbose {
-                // env::set_var("RUST_LOG","mdns=info,librespot=info,vollibrespot=trace")
-                builder.parse("mdns=info,librespot=info,vollibrespot=trace");
+                builder.parse("mdns=info,librespot=debug,vollibrespot=trace");
             } else {
-                // env::set_var("RUST_LOG","mdns=info,vollibrespot=info")
-                builder.parse("mdns=info,vollibrespot=info");
+                builder.parse("mdns=info,vollibrespot=info,librespot=info");
             }
             builder.init();
         }

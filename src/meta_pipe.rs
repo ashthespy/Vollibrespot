@@ -3,13 +3,13 @@ use librespot::core::session::Session;
 use librespot::core::spotify_id::SpotifyId;
 use librespot::core::keymaster;
 use librespot::metadata::{Album, Artist, Metadata, Track};
+use std::io::ErrorKind;
 
 use serde_json;
 use serde_json::Value;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 
-use std::sync::mpsc::{Receiver, TryRecvError};
-use futures::sync::mpsc;
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use futures::Future;
 use std::thread;
 use std::time::{Instant, Duration};
@@ -20,6 +20,14 @@ struct TrackMeta {
     album: Album,
     artist: Vec<Artist>,
     json: Value,
+}
+
+#[derive(Debug)]
+#[allow(non_camel_case_types)]
+enum VolumimoMsgs {
+    volumioHello = 0x1,
+    volumioHeatBeat = 0x2,
+    requestToken = 0x3,
 }
 
 #[derive(Debug, Serialize)]
@@ -62,8 +70,12 @@ struct MetaPipeThread {
     udp_socket: Option<UdpSocket>,
     token_info: Option<(Instant, Duration)>,
     // cmd_tx: mpsc::Sender<MetaMsgs>,
-    ticker: Instant,
+    // ticker: Instant,
+    buf: [u8; 2],
 }
+
+const SCOPES: &str = "streaming,user-read-playback-state,user-modify-playback-state,user-read-currently-playing,user-read-private";
+const CLIENT_ID: Option<&'static str> = option_env!("CLIENT_ID");
 
 impl MetaPipe {
     pub fn new(
@@ -82,7 +94,8 @@ impl MetaPipe {
                 udp_socket: None,
                 token_info: None,
                 // cmd_tx: cmd_tx,
-                ticker: Instant::now(),
+                // ticker: Instant::now(),
+                buf: [0u8; 2],
             };
 
             meta_thread.run();
@@ -99,23 +112,34 @@ impl MetaPipeThread {
     fn run(mut self) {
         self.init_socket();
         loop {
-                match  self.event_rx.try_recv() {
+                let mut got_volumio_msg = false;
+
+                match  self.event_rx.recv_timeout(Duration::from_millis(500)) {
                     Ok(event) => self.handle_event(event),
-                    Err(TryRecvError::Empty) => (),
-                    Err(TryRecvError::Disconnected) => return,
+                    Err(RecvTimeoutError::Timeout) => (),
+                    Err(RecvTimeoutError::Disconnected) => return,
                 }
                 if let Some(token_info) = self.token_info {
                     if token_info.0.elapsed() > token_info.1 {
                         info!("API Token expired, refreshing...");
-                        let client_id = option_env!("CLIENT_ID");
-                        match client_id {
-                            Some(c_id) => {
-                                const SCOPES: &str = "streaming,user-read-playback-state,user-modify-playback-state,user-read-currently-playing,user-read-private";
-                                self.request_access_token(c_id, &SCOPES);
-                            }
-                            None => (),
-                        }
+                        self.request_access_token();
                     }
+                }
+
+                if let Some(ref udp_socket) = self.udp_socket {
+                    match udp_socket.recv(&mut self.buf) {
+                        Ok(nbytes) => {
+                            info!("Got {} bytes", nbytes);
+                            println!("{:?}", String::from_utf8_lossy(&self.buf));
+                            got_volumio_msg = true;
+                        },
+                        Err(ref err) if err.kind() != ErrorKind::WouldBlock => warn!("WouldBlock"),
+                        _ => (),
+                    }
+                }
+
+                if got_volumio_msg {
+                    self.handle_volumio_msg(); // Meh pass in the message
                 }
 
                 // if self.ticker.elapsed() > Duration::from_secs(5) {
@@ -130,7 +154,10 @@ impl MetaPipeThread {
     fn init_socket(&mut self) {
         // Todo switch to multicast
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), self.config.port + 1);
-        self.udp_socket = Some(UdpSocket::bind(addr).expect("Error starting Metadata pipe: "));
+        let soc = UdpSocket::bind(addr).expect("Error starting Metadata pipe: ");
+        soc.set_nonblocking(true).expect("Error starting Metadata pipe: ");
+        self.udp_socket = Some(soc);
+
         let ver = self.config.version.clone();
         self.send_meta(ver);
     }
@@ -163,7 +190,7 @@ impl MetaPipeThread {
             Event::SinkActive { .. } => self.send_meta(MetaMsgs::kSpSinkActive.to_string()),
             Event::SinkInactive { .. } => self.send_meta(MetaMsgs::kSpSinkInactive.to_string()),
             Event::PlaybackStopped {track_id} => {
-                self.handle_track_id(track_id, None);
+                // self.handle_track_id(track_id, None);
                 self.send_meta(MetaMsgs::kSpDeviceInactive.to_string());
             },
             Event::Seek { position_ms } => {
@@ -178,27 +205,18 @@ impl MetaPipeThread {
             _ => debug!("Unhandled Event:: {:?}", event),
         }
     }
+    fn handle_volumio_msg(&mut self) {
+        match self.buf[0] {
+            0x1 => {},                          // VolumimoMsgs::volumioHello
+            0x2 => {},                          // VolumimoMsgs::volumioHeatBeat
+            0x3 => self.request_access_token(), // VolumimoMsgs::requestToken
+            0x4 => {},                          // VolumimoMsgs::stopPlayback
+            _ => debug!("volumioMsg:: {:?}", self.buf[0]),
+        }
+    }
 
     fn handle_session_active(&self) {
         info!("SessionActive!");
-        // // let url:&str = "hm://radio-apollo/v3/saved-station";
-        // // let url:&str = "hm://radio-apollo/v3/stations/spotify:track:5Yn4h3upuCzhwfOffa0Liy";
-        // let url:&str = "hm://radio-apollo/v3/stations/spotify:track:2J56abZOk2tv0GyePJnAYN";
-        // info!("{} ->", url);
-        //
-        // match self.session.mercury().get(url).wait() {
-        //     Ok(response) => {
-        //         // info!("{:?}", response.payload);
-        //         let data = String::from_utf8(response.payload[0].clone()).unwrap();
-        //         let value:Value  = serde_json::from_str(&data).unwrap();
-        //         info!("Response: {:?}",value.to_string());
-        //     },
-        //     Err(e) => info!("{:?}",e),
-        // };
-        // and_then(|response| {
-        //     protobuf::parse_from_bytes(&response.payload[0]).unwrap()
-        //     });
-        // info!("{}-> {:?}", url, test);
     }
 
     fn handle_token(&mut self, token: keymaster::Token) {
@@ -208,10 +226,15 @@ impl MetaPipeThread {
         self.send_meta(serde_json::to_string(&MetaMsgs::token(token)).unwrap());
     }
 
-    fn request_access_token(&mut self, client_id: &str, scopes: &str) {
+    fn request_access_token(&mut self ) {
         debug!("Requesting API access token");
-        let token = keymaster::get_token(&self.session, client_id, scopes).wait().unwrap();
-        self.handle_token(token);
+        match CLIENT_ID {
+            Some(client_id) => {
+                let token = keymaster::get_token(&self.session, client_id, SCOPES).wait().unwrap();
+                self.handle_token(token);
+            }
+            None => warn!("Schade!"),
+        }
     }
 
     fn handle_track_id(&mut self, track_id: SpotifyId, position_ms: Option<u32>) {
