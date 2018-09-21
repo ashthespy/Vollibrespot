@@ -4,6 +4,7 @@ use librespot::core::spotify_id::SpotifyId;
 use librespot::core::keymaster;
 use librespot::metadata::{Album, Artist, Metadata, Track};
 
+use serde_json;
 use serde_json::Value;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 
@@ -21,24 +22,25 @@ struct TrackMeta {
     json: Value,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 #[allow(non_camel_case_types)]
-pub enum MetaMsgs {
+pub enum MetaMsgs <'a> {
     kSpPlaybackNotifyBecameActive,
     kSpPlaybackNotifyBecameInactive,
     kSpDeviceActive,
     kSpDeviceInactive,
     kSpSinkActive,
     kSpSinkInactive,
-    metadata { meta_json: String },
-    token { token: keymaster::Token },
-    position_ms { position_ms: u32 },
-    volume { volume_to_mixer: u16 },
+    token(keymaster::Token),
+    position_ms(u32),
+    volume(f64),
+    state {status: &'a str},
+    // metadata(String),
 }
 
-impl MetaMsgs {
-    fn to_string(&self) -> String {
-        return format!("{:?}", self);
+impl<'a> MetaMsgs<'a> {
+    fn to_string (&self) -> String {
+        format!("{:?}", self)
     }
 }
 
@@ -50,7 +52,7 @@ pub struct MetaPipeConfig {
 
 pub struct MetaPipe {
     pub thread_handle: Option<thread::JoinHandle<()>>,
-    pub cmd_rx: mpsc::Receiver<MetaMsgs>,
+    // pub cmd_rx: mpsc::Receiver<MetaMsgs>,
 }
 
 struct MetaPipeThread {
@@ -59,7 +61,7 @@ struct MetaPipeThread {
     event_rx: Receiver<Event>,
     udp_socket: Option<UdpSocket>,
     token_info: Option<(Instant, Duration)>,
-    cmd_tx: mpsc::Sender<MetaMsgs>,
+    // cmd_tx: mpsc::Sender<MetaMsgs>,
     ticker: Instant,
 }
 
@@ -69,7 +71,7 @@ impl MetaPipe {
         session: Session,
         event_rx: Receiver<Event>,
     ) -> (MetaPipe) {
-        let (cmd_tx, cmd_rx) = mpsc::channel(2);
+        // let (cmd_tx, cmd_rx) = mpsc::channel(2);
         let handle = thread::spawn(move || {
             debug!("Starting new MetaPipe[{}]", session.session_id());
 
@@ -79,7 +81,7 @@ impl MetaPipe {
                 event_rx: event_rx,
                 udp_socket: None,
                 token_info: None,
-                cmd_tx: cmd_tx,
+                // cmd_tx: cmd_tx,
                 ticker: Instant::now(),
             };
 
@@ -88,7 +90,7 @@ impl MetaPipe {
 
         (MetaPipe {
             thread_handle: Some(handle),
-            cmd_rx: cmd_rx,
+            // cmd_rx: cmd_rx,
         })
     }
 }
@@ -140,11 +142,16 @@ impl MetaPipeThread {
                 self.handle_track_id(track_id, None);
             },
             Event::Play {track_id , position_ms} => {
+                self.send_meta(serde_json::to_string(&MetaMsgs::state{status: "play"}).unwrap());
+                self.handle_track_id(track_id, Some(position_ms));
+            }
+            Event::Pause {track_id , position_ms} => {
+                self.send_meta(serde_json::to_string(&MetaMsgs::state{status: "pause"}).unwrap());
                 self.handle_track_id(track_id, Some(position_ms));
             }
             Event::PlaybackStarted {track_id} => {
                 self.send_meta(MetaMsgs::kSpDeviceActive.to_string());
-                self.handle_track_id(track_id, None);
+                // self.handle_track_id(track_id, None);
             },
             Event::SessionActive { .. } => {
                 self.handle_session_active();
@@ -160,10 +167,14 @@ impl MetaPipeThread {
                 self.send_meta(MetaMsgs::kSpDeviceInactive.to_string());
             },
             Event::Seek { position_ms } => {
-                self.send_meta(json!({ "position_ms": position_ms }).to_string())
+                self.send_meta(serde_json::to_string(&MetaMsgs::position_ms(position_ms)).unwrap());
             }
             Event::GotToken { token } => self.handle_token(token),
-            Event::Volume {volume_to_mixer} => self.send_meta(json!({ "volume": f64::from(volume_to_mixer)/ f64::from(u16::max_value()) * 100.0}).to_string()),
+            Event::Volume {volume_to_mixer} => {
+                let pvol = f64::from(volume_to_mixer)/ f64::from(u16::max_value()) * 100.0;
+                debug!("Event::Volume({})",pvol);
+                self.send_meta(serde_json::to_string(&MetaMsgs::volume(pvol)).unwrap());
+            }
             _ => debug!("Unhandled Event:: {:?}", event),
         }
     }
@@ -194,7 +205,7 @@ impl MetaPipeThread {
         debug!("ApiToken::<{:?}>", token);
         self.token_info = Some((Instant::now(),
                                 Duration::from_secs(token.expires_in as u64 - 120u64)));
-        self.send_meta(json!({"token": token}).to_string());
+        self.send_meta(serde_json::to_string(&MetaMsgs::token(token)).unwrap());
     }
 
     fn request_access_token(&mut self, client_id: &str, scopes: &str) {

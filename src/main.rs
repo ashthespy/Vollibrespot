@@ -12,6 +12,8 @@ extern crate tokio_signal;
 extern crate url;
 #[macro_use]
 extern crate serde_json;
+#[macro_use]
+extern crate serde_derive;
 extern crate protobuf;
 
 
