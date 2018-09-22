@@ -28,7 +28,8 @@ use std::mem;
 use std::path::PathBuf;
 use std::process::exit;
 use std::str::FromStr;
-use std::sync::mpsc::{channel, Receiver};
+use std::sync::mpsc::{channel};
+use std::sync::Arc;
 use tokio_core::reactor::{Core, Handle};
 use tokio_io::IoStream;
 use url::Url;
@@ -45,10 +46,6 @@ use librespot::playback::audio_backend::{self, Sink, BACKENDS};
 use librespot::playback::config::{Bitrate, PlayerConfig};
 use librespot::playback::mixer::{self, Mixer, MixerConfig};
 use librespot::playback::player::Player;
-
-use librespot::core::events::Event;
-// mod event_hooks;
-// use event_hooks::handle_events;
 
 mod meta_pipe;
 use meta_pipe::{MetaPipe, MetaPipeConfig};
@@ -444,7 +441,7 @@ struct Main {
     discovery: Option<DiscoveryStream>,
     signal: IoStream<()>,
 
-    spirc: Option<Spirc>,
+    spirc: Option<Arc<Spirc>>,
     spirc_task: Option<SpircTask>,
     connect: Box<Future<Item = Session, Error = io::Error>>,
 
@@ -453,7 +450,6 @@ struct Main {
     player_event_program: Option<String>,
 
     session: Option<Session>,
-    event_channel: Option<Receiver<Event>>,
     meta_pipe: Option<MetaPipe>,
 }
 
@@ -481,7 +477,6 @@ impl Main {
 
             player_event_program: setup.player_event_program,
 
-            event_channel: None,
             session: None,
             meta_pipe: None,
         };
@@ -542,7 +537,6 @@ impl Future for Main {
                 let meta_config = self.meta_config.clone();
 
                 // For event hooks
-                // let (event_sender, event_receiver) = futures::sync::mpsc::unbounded::<Event>();
                 let (event_sender, event_receiver) = channel();
 
                 let audio_filter = mixer.get_audio_filter();
@@ -558,12 +552,16 @@ impl Future for Main {
                 let (spirc, spirc_task) =
                     Spirc::new(connect_config, session.clone(), player, mixer, event_sender);
 
-                let meta_pipe = MetaPipe::new(meta_config, session.clone(), event_receiver);
+                let spirc_ = Arc::new(spirc);
 
-                self.spirc = Some(spirc);
+                let meta_pipe = MetaPipe::new(meta_config,
+                                    session.clone(),
+                                    event_receiver,
+                                    spirc_.clone());
+
+                self.spirc = Some(spirc_);
                 self.spirc_task = Some(spirc_task);
                 self.session = Some(session);
-                // self.event_channel = Some(event_receiver);
                 self.meta_pipe = Some(meta_pipe);
 
                 progress = true;
