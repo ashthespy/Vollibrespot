@@ -1,8 +1,8 @@
+use librespot::connect::spirc::Spirc;
 use librespot::core::events::Event;
+use librespot::core::keymaster;
 use librespot::core::session::Session;
 use librespot::core::spotify_id::SpotifyId;
-use librespot::core::keymaster;
-use librespot::connect::spirc::Spirc;
 use librespot::metadata::{Album, Artist, Metadata, Track};
 use std::io::ErrorKind;
 
@@ -10,11 +10,11 @@ use serde_json;
 use serde_json::Value;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 
+use futures::Future;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::Arc;
-use futures::Future;
 use std::thread;
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant};
 
 #[derive(Debug)]
 struct TrackMeta {
@@ -35,7 +35,7 @@ enum VolumioMsgs {
 
 #[derive(Debug, Serialize)]
 #[allow(non_camel_case_types)]
-pub enum MetaMsgs <'a> {
+pub enum MetaMsgs<'a> {
     kSpPlaybackNotifyBecameActive,
     kSpPlaybackNotifyBecameInactive,
     kSpDeviceActive,
@@ -45,12 +45,12 @@ pub enum MetaMsgs <'a> {
     token(keymaster::Token),
     position_ms(u32),
     volume(f64),
-    state {status: &'a str},
+    state { status: &'a str },
     // metadata(String),
 }
 
 impl<'a> MetaMsgs<'a> {
-    fn to_string (&self) -> String {
+    fn to_string(&self) -> String {
         format!("{:?}", self)
     }
 }
@@ -83,7 +83,7 @@ impl MetaPipe {
         config: MetaPipeConfig,
         session: Session,
         event_rx: Receiver<Event>,
-        spirc: Arc<Spirc>
+        spirc: Arc<Spirc>,
     ) -> (MetaPipe) {
         let handle = thread::spawn(move || {
             debug!("Starting new MetaPipe[{}]", session.session_id());
@@ -111,36 +111,35 @@ impl MetaPipeThread {
     fn run(mut self) {
         self.init_socket();
         loop {
-                let mut got_volumio_msg = false;
+            let mut got_volumio_msg = false;
 
-                match  self.event_rx.recv_timeout(Duration::from_millis(500)) {
-                    Ok(event) => self.handle_event(event),
-                    Err(RecvTimeoutError::Timeout) => (),
-                    Err(RecvTimeoutError::Disconnected) => return,
+            match self.event_rx.recv_timeout(Duration::from_millis(500)) {
+                Ok(event) => self.handle_event(event),
+                Err(RecvTimeoutError::Timeout) => (),
+                Err(RecvTimeoutError::Disconnected) => return,
+            }
+            if let Some(token_info) = self.token_info {
+                if token_info.0.elapsed() > token_info.1 {
+                    info!("API Token expired, refreshing...");
+                    self.request_access_token();
                 }
-                if let Some(token_info) = self.token_info {
-                    if token_info.0.elapsed() > token_info.1 {
-                        info!("API Token expired, refreshing...");
-                        self.request_access_token();
+            }
+
+            if let Some(ref udp_socket) = self.udp_socket {
+                match udp_socket.recv(&mut self.buf) {
+                    Ok(nbytes) => {
+                        trace!("Got {} bytes", nbytes);
+                        trace!("{:?}", String::from_utf8_lossy(&self.buf));
+                        got_volumio_msg = true;
                     }
+                    Err(ref err) if err.kind() != ErrorKind::WouldBlock => warn!("WouldBlock"),
+                    _ => (),
                 }
+            }
 
-                if let Some(ref udp_socket) = self.udp_socket {
-                    match udp_socket.recv(&mut self.buf) {
-                        Ok(nbytes) => {
-                            trace!("Got {} bytes", nbytes);
-                            trace!("{:?}", String::from_utf8_lossy(&self.buf));
-                            got_volumio_msg = true;
-                        },
-                        Err(ref err) if err.kind() != ErrorKind::WouldBlock => warn!("WouldBlock"),
-                        _ => (),
-                    }
-                }
-
-                if got_volumio_msg {
-                    self.handle_volumio_msg(); // Meh pass in the message
-                }
-
+            if got_volumio_msg {
+                self.handle_volumio_msg(); // Meh pass in the message
+            }
         }
     }
 
@@ -156,43 +155,48 @@ impl MetaPipeThread {
     }
 
     fn handle_event(&mut self, event: Event) {
-
         match event {
             Event::Load { track_id } => {
                 self.handle_track_id(track_id, None);
-            },
-            Event::Play {track_id , position_ms} => {
-                self.send_meta(serde_json::to_string(&MetaMsgs::state{status: "play"}).unwrap());
+            }
+            Event::Play {
+                track_id,
+                position_ms,
+            } => {
+                self.send_meta(serde_json::to_string(&MetaMsgs::state { status: "play" }).unwrap());
                 self.handle_track_id(track_id, Some(position_ms));
             }
-            Event::Pause {track_id , position_ms} => {
-                self.send_meta(serde_json::to_string(&MetaMsgs::state{status: "pause"}).unwrap());
+            Event::Pause {
+                track_id,
+                position_ms,
+            } => {
+                self.send_meta(serde_json::to_string(&MetaMsgs::state { status: "pause" }).unwrap());
                 self.handle_track_id(track_id, Some(position_ms));
             }
             Event::PlaybackStarted { .. } => {
                 self.send_meta(MetaMsgs::kSpDeviceActive.to_string());
                 // self.handle_track_id(track_id, None);
-            },
+            }
             Event::SessionActive { .. } => {
                 self.handle_session_active();
                 self.send_meta(MetaMsgs::kSpPlaybackNotifyBecameActive.to_string())
-            },
+            }
             Event::SessionInactive { .. } => {
                 self.send_meta(MetaMsgs::kSpPlaybackNotifyBecameInactive.to_string())
-            },
+            }
             Event::SinkActive { .. } => self.send_meta(MetaMsgs::kSpSinkActive.to_string()),
             Event::SinkInactive { .. } => self.send_meta(MetaMsgs::kSpSinkInactive.to_string()),
             Event::PlaybackStopped { .. } => {
                 // self.handle_track_id(track_id, None);
                 self.send_meta(MetaMsgs::kSpDeviceInactive.to_string());
-            },
+            }
             Event::Seek { position_ms } => {
                 self.send_meta(serde_json::to_string(&MetaMsgs::position_ms(position_ms)).unwrap());
             }
             Event::GotToken { token } => self.handle_token(token),
-            Event::Volume {volume_to_mixer} => {
-                let pvol = f64::from(volume_to_mixer)/ f64::from(u16::max_value()) * 100.0;
-                debug!("Event::Volume({})",pvol);
+            Event::Volume { volume_to_mixer } => {
+                let pvol = f64::from(volume_to_mixer) / f64::from(u16::max_value()) * 100.0;
+                debug!("Event::Volume({})", pvol);
                 self.send_meta(serde_json::to_string(&MetaMsgs::volume(pvol)).unwrap());
             }
             _ => debug!("Unhandled Event:: {:?}", event),
@@ -203,17 +207,19 @@ impl MetaPipeThread {
         use self::VolumioMsgs::*;
         match self.buf[0] {
             0x1 => {
-                info!("{:?}",volHello);
-            },
+                info!("{:?}", volHello);
+            }
             0x2 => {
-                info!("{:?}",volHeartBeat);
-            },
+                info!("{:?}", volHeartBeat);
+            }
             0x3 => {
                 info!("{:?}", volReqToken);
-                self.request_access_token()},
+                self.request_access_token()
+            }
             0x4 => {
-                info!("{:?}",volStop);
-                self.spirc.pause()},
+                info!("{:?}", volStop);
+                self.spirc.pause()
+            }
             _ => debug!("volumioMsg:: {:?}", self.buf[0]),
         }
     }
@@ -224,16 +230,20 @@ impl MetaPipeThread {
 
     fn handle_token(&mut self, token: keymaster::Token) {
         debug!("ApiToken::<{:?}>", token);
-        self.token_info = Some((Instant::now(),
-                                Duration::from_secs(token.expires_in as u64 - 120u64)));
+        self.token_info = Some((
+            Instant::now(),
+            Duration::from_secs(token.expires_in as u64 - 120u64),
+        ));
         self.send_meta(serde_json::to_string(&MetaMsgs::token(token)).unwrap());
     }
 
-    fn request_access_token(&mut self ) {
+    fn request_access_token(&mut self) {
         debug!("Requesting API access token");
         match CLIENT_ID {
             Some(client_id) => {
-                let token = keymaster::get_token(&self.session, client_id, SCOPES).wait().unwrap();
+                let token = keymaster::get_token(&self.session, client_id, SCOPES)
+                    .wait()
+                    .unwrap();
                 self.handle_token(token);
             }
             None => warn!("Schade!"),
@@ -260,10 +270,13 @@ impl MetaPipeThread {
             .map(|cover| cover.to_base16())
             .collect::<Vec<_>>();
         let artist_ids = artists
-                        .iter()
-                        .map(|artist| artist.id.to_base62())
-                        .collect::<Vec<_>>();
-        let artist_names = artists.iter().map(|artist| artist.name.clone()).collect::<Vec<String>>();
+            .iter()
+            .map(|artist| artist.id.to_base62())
+            .collect::<Vec<_>>();
+        let artist_names = artists
+            .iter()
+            .map(|artist| artist.name.clone())
+            .collect::<Vec<String>>();
         let json = json!(
             {"metadata" : {
                 "track_id": track_id.to_base62(),

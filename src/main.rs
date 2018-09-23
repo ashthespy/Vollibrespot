@@ -16,7 +16,6 @@ extern crate serde_json;
 extern crate serde_derive;
 extern crate protobuf;
 
-
 use crypto::digest::Digest;
 use crypto::sha1::Sha1;
 use env_logger::{fmt, Builder};
@@ -28,7 +27,7 @@ use std::mem;
 use std::path::PathBuf;
 use std::process::exit;
 use std::str::FromStr;
-use std::sync::mpsc::{channel};
+use std::sync::mpsc::channel;
 use std::sync::Arc;
 use tokio_core::reactor::{Core, Handle};
 use tokio_io::IoStream;
@@ -273,10 +272,13 @@ fn setup(args: &[String]) -> Setup {
     let mixer_name = matches.opt_str("mixer");
     let mixer = mixer::find(mixer_name.as_ref()).expect("Invalid mixer");
     let mixer_config = MixerConfig {
-            card:  matches.opt_str("mixer-card").unwrap_or(String::from("default")),
-            mixer: matches.opt_str("mixer-name").unwrap_or(String::from("PCM")),
-            index: matches.opt_str("mixer-index").map(|index| index.parse::<u32>().unwrap()).unwrap_or(0),
-            mapped_volume: !matches.opt_present("mixer-linear-volume"),
+        card: matches.opt_str("mixer-card").unwrap_or(String::from("default")),
+        mixer: matches.opt_str("mixer-name").unwrap_or(String::from("PCM")),
+        index: matches
+            .opt_str("mixer-index")
+            .map(|index| index.parse::<u32>().unwrap())
+            .unwrap_or(0),
+        mapped_volume: !matches.opt_present("mixer-linear-volume"),
     };
 
     let use_audio_cache = !matches.opt_present("disable-audio-cache");
@@ -293,8 +295,7 @@ fn setup(args: &[String]) -> Setup {
                 panic!("Initial volume must be in the range 0-100");
             }
             (volume as i32 * 0xFFFF / 100) as u16
-        })
-        .or_else(|| cache.as_ref().and_then(Cache::volume))
+        }).or_else(|| cache.as_ref().and_then(Cache::volume))
         .unwrap_or(0x8000);
 
     let zeroconf_port = matches
@@ -467,7 +468,6 @@ impl Main {
             mixer: setup.mixer,
             mixer_config: setup.mixer_config,
 
-
             connect: Box::new(futures::future::empty()),
             discovery: None,
             spirc: None,
@@ -554,10 +554,8 @@ impl Future for Main {
 
                 let spirc_ = Arc::new(spirc);
 
-                let meta_pipe = MetaPipe::new(meta_config,
-                                    session.clone(),
-                                    event_receiver,
-                                    spirc_.clone());
+                let meta_pipe =
+                    MetaPipe::new(meta_config, session.clone(), event_receiver, spirc_.clone());
 
                 self.spirc = Some(spirc_);
                 self.spirc_task = Some(spirc_task);
