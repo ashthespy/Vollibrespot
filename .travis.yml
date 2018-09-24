@@ -1,0 +1,18 @@
+language: rust
+
+rust:
+  - stable
+  - nightly
+
+cache: cargo
+
+addons:
+  apt:
+    packages:
+      - libasound2-dev
+
+script:
+- cargo build --release
+
+notifications:
+  email: false
