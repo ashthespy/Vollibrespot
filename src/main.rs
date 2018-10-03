@@ -14,7 +14,6 @@ extern crate serde_json;
 #[macro_use]
 extern crate serde_derive;
 extern crate hex;
-extern crate protobuf;
 extern crate sha1;
 
 use env_logger::{fmt, Builder};
