@@ -1,0 +1,133 @@
+version: 2
+
+dockerparams: &dockerparams
+  docker:
+    - image: ashthespy/rustcross
+      environment:
+        CLIENT_ID: $CLIENT_ID
+      auth:
+        username: ashthespy
+        password: $DOCKERHUB_P
+
+jobs:
+  build:
+    <<: *dockerparams
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - cargo-cache-{{ .Environment.cache_ver }}
+      - run:
+          name: Compile
+          command: cargo build --verbose
+      - save_cache:
+          key: cargo-cache-{{ .Environment.cache_ver }}
+          paths:
+            - "/build/cache"
+
+  cross-armv7l:
+    <<: *dockerparams
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - cargo-cache-{{ .Environment.cache_ver }}
+            - cargo-build-armv7-unknown-linux-gnueabihf-{{ .Environment.cache_ver }}
+      - run:
+          name: cross-armv7l
+          command: |
+            cargo build --release --target armv7-unknown-linux-gnueabihf &&
+            tar cfj vollibrespot-armv7l.tar.xz \
+              -C /build/armv7-unknown-linux-gnueabihf/release/ vollibrespot
+      - store_artifacts:
+          path: ./vollibrespot-armv7l.tar.xz
+          destination: vollibrespot-armv7l.tar.xz
+      - save_cache:
+          key: cargo-build-armv7-unknown-linux-gnueabihf-{{ .Environment.cache_ver }}
+          paths:
+            - "/build/armv7-unknown-linux-gnueabihf"
+
+  cross-armv6l:
+    <<: *dockerparams
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - cargo-cache-{{ .Environment.cache_ver }}
+            - cargo-build-arm-unknown-linux-gnueabihf-{{ .Environment.cache_ver }}
+      - run:
+          name: cross-armv6l
+          command: |
+            cargo build --release --target arm-unknown-linux-gnueabihf &&
+            tar cfj vollibrespot-armv6l.tar.xz \
+              -C /build/arm-unknown-linux-gnueabihf/release/ vollibrespot
+      - store_artifacts:
+          path: ./vollibrespot-armv6l.tar.xz
+          destination: vollibrespot-armv6l.tar.xz
+      - save_cache:
+          key: cargo-build-arm-unknown-linux-gnueabihf-{{ .Environment.cache_ver }}
+          paths:
+            - "/build/arm-unknown-linux-gnueabihf"
+
+  cross-aarch64:
+    <<: *dockerparams
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - cargo-cache-{{ .Environment.cache_ver }}
+            - cargo-build-aarch64-unknown-linux-gnu-{{ .Environment.cache_ver }}
+      - run:
+          name: cross-aarch64
+          command: |
+            cargo build --release --target aarch64-unknown-linux-gnu &&
+            tar cfj vollibrespot-aarch64.tar.xz \
+              -C /build/aarch64-unknown-linux-gnu/release/ vollibrespot
+      - store_artifacts:
+          path: ./vollibrespot-aarch64.tar.xz
+          destination: vollibrespot-aarch64.tar.xz
+      - save_cache:
+          key: cargo-build-aarch64-unknown-linux-gnu-{{ .Environment.cache_ver }}
+          paths:
+            - "/build/aarch64-unknown-linux-gnu"
+
+  cross-i686:
+    <<: *dockerparams
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - cargo-cache-{{ .Environment.cache_ver }}
+            - cargo-build-i686-unknown-linux-gnu-{{ .Environment.cache_ver }}
+      - run:
+          name: cross-i686
+          command: |
+            apt-get install -y gcc-multilib &&
+            cargo build --release --target i686-unknown-linux-gnu &&
+            tar cfj vollibrespot-i686.tar.xz \
+              -C /build/i686-unknown-linux-gnu/release/ vollibrespot
+      - store_artifacts:
+          path: ./vollibrespot-i686.tar.xz
+          destination: vollibrespot-i686.tar.xz
+      - save_cache:
+          key: cargo-build-i686-unknown-linux-gnu-{{ .Environment.cache_ver }}
+          paths:
+            - "/build/i686-unknown-linux-gnu"
+
+workflows:
+  version: 2
+  build_and_crosscompile:
+    jobs:
+      - build
+      - cross-armv7l:
+          requires:
+            - build
+      - cross-armv6l:
+          requires:
+            - build
+      - cross-aarch64:
+          requires:
+            - build
+      - cross-i686:
+          requires:
+            - build
