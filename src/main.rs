@@ -47,6 +47,7 @@ use librespot::playback::player::Player;
 mod meta_pipe;
 use meta_pipe::{MetaPipe, MetaPipeConfig};
 
+pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 include!(concat!(env!("OUT_DIR"), "/version.rs"));
 
 fn device_id(name: &str) -> String {
@@ -107,6 +108,18 @@ fn setup_logging(verbose: bool) {
     }
 }
 
+fn version() -> String {
+    format!(
+        "vollibrespot v{} {} {} (librespot {} {}) -- Built On {}",
+        VERSION,
+        short_sha(),
+        commit_date(),
+        version::short_sha(),
+        version::commit_date(),
+        short_now()
+    )
+}
+
 fn list_backends() {
     println!("Available Backends : ");
     for (&(name, _), idx) in BACKENDS.iter().zip(0..) {
@@ -146,6 +159,7 @@ fn setup(args: &[String]) -> Setup {
         "CACHE",
     ).optflag("", "disable-audio-cache", "Disable caching of the audio data.")
         .reqopt("n", "name", "Device name", "NAME")
+        .optflag("v", "version", "Version information")
         .optopt("", "device-type", "Displayed device type", "DEVICE_TYPE")
         .optopt(
             "b",
@@ -159,7 +173,7 @@ fn setup(args: &[String]) -> Setup {
             "Run PROGRAM when playback is about to begin.",
             "PROGRAM",
         )
-        .optflag("v", "verbose", "Enable verbose output")
+        .optflag("", "verbose", "Enable verbose output")
         .optopt("u", "username", "Username to sign in with", "USERNAME")
         .optopt("p", "password", "Password", "PASSWORD")
         .optopt("", "proxy", "HTTP proxy to use when connecting", "PROXY")
@@ -239,21 +253,19 @@ fn setup(args: &[String]) -> Setup {
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
         Err(f) => {
-            writeln!(stderr(), "error: {}\n{}", f.to_string(), usage(&args[0], &opts)).unwrap();
+            match args.last().unwrap().as_str() {
+                "-v" | "--version" => {
+                    println!("{}", version());
+                    exit(0)
+                }
+                _ => writeln!(stderr(), "error: {:?}\n{}", f, usage(&args[0], &opts)).unwrap(),
+            }
             exit(1);
         }
     };
 
     let verbose = matches.opt_present("verbose");
     setup_logging(verbose);
-    info!(
-        "vollibrespot {} {} (librespot {} {}) -- Built On {}",
-        short_sha(),
-        commit_date(),
-        version::short_sha(),
-        version::commit_date(),
-        short_now()
-    );
 
     let backend_name = matches.opt_str("backend");
     if backend_name == Some("?".into()) {
@@ -261,8 +273,9 @@ fn setup(args: &[String]) -> Setup {
         exit(0);
     }
 
-    let backend = audio_backend::find(backend_name).expect("Invalid backend");
+    println!("{}", version());
 
+    let backend = audio_backend::find(backend_name).expect("Invalid backend");
     let device = matches.opt_str("device");
 
     let mixer_name = matches.opt_str("mixer");
@@ -389,18 +402,9 @@ fn setup(args: &[String]) -> Setup {
             .opt_str("metadata-port")
             .map(|port| port.parse::<u16>().unwrap())
             .unwrap_or(5030);
-        let version = format!(
-            "vollibrespot {} {} (librespot {} {}) -- Built On {}",
-            short_sha(),
-            commit_date(),
-            version::short_sha(),
-            version::commit_date(),
-            short_now()
-        );
-
         MetaPipeConfig {
             port: port,
-            version: version,
+            version: version(),
         }
     };
 
