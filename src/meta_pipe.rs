@@ -151,10 +151,11 @@ impl MetaPipeThread {
         self.udp_socket = Some(soc);
 
         let ver = self.config.version.clone();
-        self.send_meta(ver);
+        self.send_meta(&ver);
     }
 
     fn handle_event(&mut self, event: Event) {
+        debug!("{:?}", event);
         match event {
             Event::Load { track_id } => {
                 self.handle_track_id(track_id, None);
@@ -163,41 +164,41 @@ impl MetaPipeThread {
                 track_id,
                 position_ms,
             } => {
-                self.send_meta(serde_json::to_string(&MetaMsgs::state { status: "play" }).unwrap());
+                self.send_meta(&serde_json::to_string(&MetaMsgs::state { status: "play" }).unwrap());
                 self.handle_track_id(track_id, Some(position_ms));
             }
             Event::Pause {
                 track_id,
                 position_ms,
             } => {
-                self.send_meta(serde_json::to_string(&MetaMsgs::state { status: "pause" }).unwrap());
+                self.send_meta(&serde_json::to_string(&MetaMsgs::state { status: "pause" }).unwrap());
                 self.handle_track_id(track_id, Some(position_ms));
             }
             Event::PlaybackStarted { .. } => {
-                self.send_meta(MetaMsgs::kSpDeviceActive.to_string());
+                self.send_meta(&MetaMsgs::kSpDeviceActive.to_string());
                 // self.handle_track_id(track_id, None);
             }
             Event::SessionActive { .. } => {
                 self.handle_session_active();
-                self.send_meta(MetaMsgs::kSpPlaybackNotifyBecameActive.to_string())
+                self.send_meta(&MetaMsgs::kSpPlaybackNotifyBecameActive.to_string())
             }
             Event::SessionInactive { .. } => {
-                self.send_meta(MetaMsgs::kSpPlaybackNotifyBecameInactive.to_string())
+                self.send_meta(&MetaMsgs::kSpPlaybackNotifyBecameInactive.to_string())
             }
-            Event::SinkActive { .. } => self.send_meta(MetaMsgs::kSpSinkActive.to_string()),
-            Event::SinkInactive { .. } => self.send_meta(MetaMsgs::kSpSinkInactive.to_string()),
+            Event::SinkActive { .. } => self.send_meta(&MetaMsgs::kSpSinkActive.to_string()),
+            Event::SinkInactive { .. } => self.send_meta(&MetaMsgs::kSpSinkInactive.to_string()),
             Event::PlaybackStopped { .. } => {
                 // self.handle_track_id(track_id, None);
-                self.send_meta(MetaMsgs::kSpDeviceInactive.to_string());
+                self.send_meta(&MetaMsgs::kSpDeviceInactive.to_string());
             }
             Event::Seek { position_ms } => {
-                self.send_meta(serde_json::to_string(&MetaMsgs::position_ms(position_ms)).unwrap());
+                self.send_meta(&serde_json::to_string(&MetaMsgs::position_ms(position_ms)).unwrap());
             }
             Event::GotToken { token } => self.handle_token(token),
             Event::Volume { volume_to_mixer } => {
                 let pvol = f64::from(volume_to_mixer) / f64::from(u16::max_value()) * 100.0;
                 debug!("Event::Volume({})", pvol);
-                self.send_meta(serde_json::to_string(&MetaMsgs::volume(pvol)).unwrap());
+                self.send_meta(&serde_json::to_string(&MetaMsgs::volume(pvol)).unwrap());
             }
             _ => debug!("Unhandled Event:: {:?}", event),
         }
@@ -232,9 +233,9 @@ impl MetaPipeThread {
         debug!("ApiToken::<{:?}>", token);
         self.token_info = Some((
             Instant::now(),
-            Duration::from_secs(token.expires_in as u64 - 120u64),
+            Duration::from_secs(u64::from(token.expires_in) - 120u64),
         ));
-        self.send_meta(serde_json::to_string(&MetaMsgs::token(token)).unwrap());
+        self.send_meta(&serde_json::to_string(&MetaMsgs::token(token)).unwrap());
     }
 
     fn request_access_token(&mut self) {
@@ -252,8 +253,8 @@ impl MetaPipeThread {
 
     fn handle_track_id(&mut self, track_id: SpotifyId, position_ms: Option<u32>) {
         let track_metadata = self.get_metadata(track_id, position_ms);
-        self.send_meta(track_metadata.json.to_string());
-        self.send_meta("\r\n".to_string());
+        self.send_meta(&track_metadata.json.to_string());
+        self.send_meta(&"\r\n".to_string());
     }
 
     fn get_metadata(&mut self, track_id: SpotifyId, position_ms: Option<u32>) -> TrackMeta {
@@ -298,7 +299,7 @@ impl MetaPipeThread {
         }
     }
 
-    fn send_meta(&mut self, msg: String) {
+    fn send_meta(&mut self, msg: &str) {
         let remote_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), self.config.port);
         self.udp_socket
             .as_ref()

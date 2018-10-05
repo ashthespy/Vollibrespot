@@ -47,6 +47,7 @@ use librespot::playback::player::Player;
 mod meta_pipe;
 use meta_pipe::{MetaPipe, MetaPipeConfig};
 
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 include!(concat!(env!("OUT_DIR"), "/version.rs"));
 
 fn device_id(name: &str) -> String {
@@ -92,19 +93,31 @@ fn setup_logging(verbose: bool) {
             builder.parse(&config);
             // env::set_var("RUST_LOG",&config);
             if verbose {
-                warn!("`--verbose` flag overidden by `RUST_LOG` environment variable");
+                warn!("`--verbose` flag overridden by `RUST_LOG` environment variable");
             }
             builder.init();
         }
         Err(_) => {
             if verbose {
-                builder.parse("mdns=info,librespot=debug,vollibrespot=trace");
+                builder.parse("mdns=debug,librespot=debug,vollibrespot=trace");
             } else {
-                builder.parse("mdns=info,vollibrespot=info,librespot=info");
+                builder.parse("mdns=info,librespot=info,vollibrespot=info");
             }
             builder.init();
         }
     }
+}
+
+fn version() -> String {
+    format!(
+        "vollibrespot v{} {} {} (librespot {} {}) -- Built On {}",
+        VERSION,
+        short_sha(),
+        commit_date(),
+        version::short_sha(),
+        version::commit_date(),
+        short_now()
+    )
 }
 
 fn list_backends() {
@@ -134,7 +147,6 @@ struct Setup {
     credentials: Option<Credentials>,
     enable_discovery: bool,
     zeroconf_port: u16,
-    player_event_program: Option<String>,
 }
 
 fn setup(args: &[String]) -> Setup {
@@ -146,6 +158,7 @@ fn setup(args: &[String]) -> Setup {
         "CACHE",
     ).optflag("", "disable-audio-cache", "Disable caching of the audio data.")
         .reqopt("n", "name", "Device name", "NAME")
+        .optflag("v", "version", "Version information")
         .optopt("", "device-type", "Displayed device type", "DEVICE_TYPE")
         .optopt(
             "b",
@@ -153,13 +166,7 @@ fn setup(args: &[String]) -> Setup {
             "Bitrate (96, 160 or 320). Defaults to 160",
             "BITRATE",
         )
-        .optopt(
-            "",
-            "onevent",
-            "Run PROGRAM when playback is about to begin.",
-            "PROGRAM",
-        )
-        .optflag("v", "verbose", "Enable verbose output")
+        .optflag("", "verbose", "Enable verbose output")
         .optopt("u", "username", "Username to sign in with", "USERNAME")
         .optopt("p", "password", "Password", "PASSWORD")
         .optopt("", "proxy", "HTTP proxy to use when connecting", "PROXY")
@@ -226,8 +233,8 @@ fn setup(args: &[String]) -> Setup {
         )
         .optflag(
             "",
-            "linear-volume",
-            "increase volume linear instead of logarithmic.",
+            "logarithmic-volume",
+            "Map Spotify's volume range logarithmically to the audio mixer",
         )
         .optopt(
             "",
@@ -239,21 +246,19 @@ fn setup(args: &[String]) -> Setup {
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
         Err(f) => {
-            writeln!(stderr(), "error: {}\n{}", f.to_string(), usage(&args[0], &opts)).unwrap();
+            match args.last().unwrap().as_str() {
+                "-v" | "--version" => {
+                    println!("{}", version());
+                    exit(0)
+                }
+                _ => eprintln!("error: {:?}\n{}", f, usage(&args[0], &opts)),
+            }
             exit(1);
         }
     };
 
     let verbose = matches.opt_present("verbose");
     setup_logging(verbose);
-    info!(
-        "vollibrespot {} {} (librespot {} {}) -- Built On {}",
-        short_sha(),
-        commit_date(),
-        version::short_sha(),
-        version::commit_date(),
-        short_now()
-    );
 
     let backend_name = matches.opt_str("backend");
     if backend_name == Some("?".into()) {
@@ -261,8 +266,9 @@ fn setup(args: &[String]) -> Setup {
         exit(0);
     }
 
-    let backend = audio_backend::find(backend_name).expect("Invalid backend");
+    println!("{}", version());
 
+    let backend = audio_backend::find(backend_name).expect("Invalid backend");
     let device = matches.opt_str("device");
 
     let mixer_name = matches.opt_str("mixer");
@@ -290,7 +296,7 @@ fn setup(args: &[String]) -> Setup {
             if volume > 100 {
                 panic!("Initial volume must be in the range 0-100");
             }
-            (volume as i32 * 0xFFFF / 100) as u16
+            (i32::from(volume) * 0xFFFF / 100) as u16
         }).or_else(|| cache.as_ref().and_then(Cache::volume))
         .unwrap_or(0x8000);
 
@@ -380,7 +386,7 @@ fn setup(args: &[String]) -> Setup {
             name: name,
             device_type: device_type,
             volume: initial_volume,
-            linear_volume: matches.opt_present("linear-volume"),
+            linear_volume: !matches.opt_present("logarithmic-volume"),
         }
     };
 
@@ -389,18 +395,9 @@ fn setup(args: &[String]) -> Setup {
             .opt_str("metadata-port")
             .map(|port| port.parse::<u16>().unwrap())
             .unwrap_or(5030);
-        let version = format!(
-            "vollibrespot {} {} (librespot {} {}) -- Built On {}",
-            short_sha(),
-            commit_date(),
-            version::short_sha(),
-            version::commit_date(),
-            short_now()
-        );
-
         MetaPipeConfig {
             port: port,
-            version: version,
+            version: version(),
         }
     };
 
@@ -419,7 +416,6 @@ fn setup(args: &[String]) -> Setup {
         zeroconf_port: zeroconf_port,
         mixer: mixer,
         mixer_config: mixer_config,
-        player_event_program: matches.opt_str("onevent"),
     }
 }
 
@@ -443,8 +439,6 @@ struct Main {
     connect: Box<Future<Item = Session, Error = io::Error>>,
 
     shutdown: bool,
-
-    player_event_program: Option<String>,
 
     session: Option<Session>,
     meta_pipe: Option<MetaPipe>,
@@ -470,8 +464,6 @@ impl Main {
             spirc_task: None,
             shutdown: false,
             signal: Box::new(tokio_signal::ctrl_c(&handle).flatten_stream()),
-
-            player_event_program: setup.player_event_program,
 
             session: None,
             meta_pipe: None,
@@ -584,17 +576,6 @@ impl Future for Main {
                     }
                 }
             }
-
-            // if let Some(ref mut event_channel) = self.event_channel {
-            //     match  event_channel.try_recv() {
-            //         Ok(event) => {
-            //             if let Some(ref program) = self.player_event_program {
-            //                    run_program_on_events(event, program);
-            //                }},
-            //         Err(TryRecvError::Empty) => progress = true,
-            //         Err(TryRecvError::Disconnected) => (),
-            //     }
-            // }
 
             if !progress {
                 return Ok(Async::NotReady);
