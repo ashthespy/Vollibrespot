@@ -19,7 +19,13 @@ jobs:
             - cargo-cache-{{ .Environment.cache_ver }}
       - run:
           name: Compile
-          command: cargo build --verbose
+          command: |
+            cargo build --verbose
+            /build/debug/vollibrespot --version
+            /build/debug/vollibrespot --version > version
+      - persist_to_workspace:
+          root: .
+          paths: version
       - save_cache:
           key: cargo-cache-{{ .Environment.cache_ver }}
           paths:
@@ -42,6 +48,9 @@ jobs:
       - store_artifacts:
           path: ./vollibrespot-armv7l.tar.xz
           destination: vollibrespot-armv7l.tar.xz
+      - persist_to_workspace:
+          root: .
+          paths: '*.tar*'
       - save_cache:
           key: cargo-build-armv7-unknown-linux-gnueabihf-{{ .Environment.cache_ver }}
           paths:
@@ -64,6 +73,9 @@ jobs:
       - store_artifacts:
           path: ./vollibrespot-armv6l.tar.xz
           destination: vollibrespot-armv6l.tar.xz
+      - persist_to_workspace:
+          root: .
+          paths: '*.tar*'
       - save_cache:
           key: cargo-build-arm-unknown-linux-gnueabihf-{{ .Environment.cache_ver }}
           paths:
@@ -86,6 +98,9 @@ jobs:
       - store_artifacts:
           path: ./vollibrespot-aarch64.tar.xz
           destination: vollibrespot-aarch64.tar.xz
+      - persist_to_workspace:
+          root: .
+          paths: '*.tar*'
       - save_cache:
           key: cargo-build-aarch64-unknown-linux-gnu-{{ .Environment.cache_ver }}
           paths:
@@ -109,10 +124,36 @@ jobs:
       - store_artifacts:
           path: ./vollibrespot-i686.tar.xz
           destination: vollibrespot-i686.tar.xz
+      - persist_to_workspace:
+          root: .
+          paths: '*.tar*'
       - save_cache:
           key: cargo-build-i686-unknown-linux-gnu-{{ .Environment.cache_ver }}
           paths:
             - "/build/i686-unknown-linux-gnu"
+
+  publish-release:
+    docker:
+      - image: cibuilds/github:0.12
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - run:
+          name: github-release
+          command: |
+            VERSION=$(git describe --always)
+            echo -e $(git log -1 --format="%h %s (%cd)") >> ./version
+            echo ${VERSION} >> ./version
+            ls -l *.tar* >> ./version
+            mkdir ./Release && mv ./version ./Release
+            mv *.tar* ./Release
+            ghr -t ${GITHUB_TOKEN} -u ${CIRCLE_PROJECT_USERNAME} -r \
+            ${CIRCLE_PROJECT_REPONAME} -c ${CIRCLE_SHA1} \
+            -n ${VERSION} -draft -delete ${VERSION} ./Release
+      - store_artifacts:
+          path: ./Release
+          destination: Release
 
 workflows:
   version: 2
@@ -131,3 +172,12 @@ workflows:
       - cross-i686:
           requires:
             - build
+      - publish-release:
+          requires:
+            - cross-armv7l
+            - cross-armv6l
+            - cross-aarch64
+            - cross-i686
+          # filters:
+          #   tags:
+          #     only: /^v\d+\.\d+\.\d+$/
