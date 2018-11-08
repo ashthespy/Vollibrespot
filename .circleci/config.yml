@@ -43,7 +43,7 @@ jobs:
           name: cross-armv7l
           command: |
             cargo build --release --target armv7-unknown-linux-gnueabihf &&
-            tar cfj vollibrespot-armv7l.tar.xz \
+            tar czf vollibrespot-armv7l.tar.xz \
               -C /build/armv7-unknown-linux-gnueabihf/release/ vollibrespot
       - store_artifacts:
           path: ./vollibrespot-armv7l.tar.xz
