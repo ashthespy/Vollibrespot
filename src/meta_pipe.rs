@@ -109,7 +109,10 @@ impl MetaPipe {
 
 impl MetaPipeThread {
     fn run(mut self) {
-        self.init_socket();
+        if !self.udp_socket.is_some() {
+            self.init_socket();
+        }
+
         loop {
             let mut got_volumio_msg = false;
 
@@ -149,7 +152,7 @@ impl MetaPipeThread {
         let soc = UdpSocket::bind(addr).expect("Error starting Metadata pipe: ");
         soc.set_nonblocking(true).expect("Error starting Metadata pipe: ");
         self.udp_socket = Some(soc);
-
+        info!("Metadata pipe established");
         let ver = self.config.version.clone();
         self.send_meta(&ver);
     }
