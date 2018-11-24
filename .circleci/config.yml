@@ -68,7 +68,7 @@ jobs:
           name: cross-armv6l
           command: |
             cargo build --release --target arm-unknown-linux-gnueabihf &&
-            tar cfj vollibrespot-armv6l.tar.xz \
+            tar czf vollibrespot-armv6l.tar.xz \
               -C /build/arm-unknown-linux-gnueabihf/release/ vollibrespot
       - store_artifacts:
           path: ./vollibrespot-armv6l.tar.xz
@@ -93,7 +93,7 @@ jobs:
           name: cross-aarch64
           command: |
             cargo build --release --target aarch64-unknown-linux-gnu &&
-            tar cfj vollibrespot-aarch64.tar.xz \
+            tar czf vollibrespot-aarch64.tar.xz \
               -C /build/aarch64-unknown-linux-gnu/release/ vollibrespot
       - store_artifacts:
           path: ./vollibrespot-aarch64.tar.xz
@@ -119,7 +119,7 @@ jobs:
           command: |
             apt-get install -y gcc-multilib &&
             cargo build --release --target i686-unknown-linux-gnu &&
-            tar cfj vollibrespot-i686.tar.xz \
+            tar czf vollibrespot-i686.tar.xz \
               -C /build/i686-unknown-linux-gnu/release/ vollibrespot
       - store_artifacts:
           path: ./vollibrespot-i686.tar.xz
