@@ -297,7 +297,8 @@ fn setup(args: &[String]) -> Setup {
                 panic!("Initial volume must be in the range 0-100");
             }
             (i32::from(volume) * 0xFFFF / 100) as u16
-        }).or_else(|| cache.as_ref().and_then(Cache::volume))
+        })
+        .or_else(|| cache.as_ref().and_then(Cache::volume))
         .unwrap_or(0x8000);
 
     let zeroconf_port = matches

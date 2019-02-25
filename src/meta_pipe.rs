@@ -109,17 +109,23 @@ impl MetaPipe {
 
 impl MetaPipeThread {
     fn run(mut self) {
-        if !self.udp_socket.is_some() {
-            self.init_socket();
-        }
+        self.init_socket();
 
         loop {
             let mut got_volumio_msg = false;
 
+            if self.session.is_invalid() {
+                warn!("Session no longer valid, shutting down MetaPipe");
+                return;
+            }
+
             match self.event_rx.recv_timeout(Duration::from_millis(500)) {
                 Ok(event) => self.handle_event(event),
                 Err(RecvTimeoutError::Timeout) => (),
-                Err(RecvTimeoutError::Disconnected) => return,
+                Err(RecvTimeoutError::Disconnected) => {
+                    warn!("EventSender disconnected");
+                    return;
+                }
             }
             if let Some(token_info) = self.token_info {
                 if token_info.0.elapsed() > token_info.1 {
@@ -282,17 +288,17 @@ impl MetaPipeThread {
             .map(|artist| artist.name.clone())
             .collect::<Vec<String>>();
         let json = json!(
-            {"metadata" : {
-                "track_id": track_id.to_base62(),
-                "track_name": track.name,
-                "artist_id": artist_ids,
-                "artist_name": artist_names,
-                "album_id": album.id.to_base62(),
-                "album_name": album.name,
-                "duration_ms": track.duration,
-                "albumartId": covers,
-                "position_ms": position_ms.unwrap_or(0),
-            }});
+        { "metadata" : {
+            "track_id": track_id.to_base62(),
+            "track_name": track.name,
+            "artist_id": artist_ids,
+            "artist_name": artist_names,
+            "album_id": album.id.to_base62(),
+            "album_name": album.name,
+            "duration_ms": track.duration,
+            "albumartId": covers,
+            "position_ms": position_ms.unwrap_or(0),
+        }});
 
         TrackMeta {
             track: track,
@@ -314,12 +320,14 @@ impl MetaPipeThread {
 
 impl Drop for MetaPipe {
     fn drop(&mut self) {
-        debug!("Shutting down MetaPipe thread ...");
+        warn!("Shutting down MetaPipe ... {:?}", self.thread_handle);
         if let Some(handle) = self.thread_handle.take() {
             match handle.join() {
-                Ok(_) => (),
-                Err(_) => error!("MetaPipe thread panicked!"),
+                Ok(_) => info!("Closed MetaPipe thread"),
+                Err(_) => error!("MetaPipe panicked!"),
             }
+        } else {
+            warn!("Unable to drop MetaPipe");
         }
     }
 }
