@@ -117,7 +117,7 @@ jobs:
       - run:
           name: cross-i686
           command: |
-            apt-get install -y gcc-multilib &&
+            apt-get update && apt-get install -y gcc-multilib &&
             cargo build --release --target i686-unknown-linux-gnu &&
             tar czf vollibrespot-i686.tar.xz \
               -C /build/i686-unknown-linux-gnu/release/ vollibrespot
