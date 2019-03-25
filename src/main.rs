@@ -90,7 +90,7 @@ fn setup_logging(verbose: bool) {
     });
     match env::var("RUST_LOG") {
         Ok(config) => {
-            builder.parse(&config);
+            builder.parse_filters(&config);
             // env::set_var("RUST_LOG",&config);
             if verbose {
                 warn!("`--verbose` flag overridden by `RUST_LOG` environment variable");
@@ -99,9 +99,9 @@ fn setup_logging(verbose: bool) {
         }
         Err(_) => {
             if verbose {
-                builder.parse("mdns=debug,librespot=debug,vollibrespot=trace");
+                builder.parse_filters("mdns=debug,librespot=debug,vollibrespot=trace");
             } else {
-                builder.parse("mdns=info,librespot=info,vollibrespot=info");
+                builder.parse_filters("mdns=info,librespot=info,vollibrespot=info");
             }
             builder.init();
         }
@@ -464,7 +464,7 @@ impl Main {
             spirc: None,
             spirc_task: None,
             shutdown: false,
-            signal: Box::new(tokio_signal::ctrl_c(&handle).flatten_stream()),
+            signal: Box::new(tokio_signal::ctrl_c().flatten_stream()),
 
             session: None,
             meta_pipe: None,
