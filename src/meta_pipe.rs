@@ -116,6 +116,7 @@ impl MetaPipeThread {
 
             if self.session.is_invalid() {
                 warn!("Session no longer valid, shutting down MetaPipe");
+                drop(self.udp_socket.take());
                 return;
             }
 
@@ -136,9 +137,7 @@ impl MetaPipeThread {
 
             if let Some(ref udp_socket) = self.udp_socket {
                 match udp_socket.recv(&mut self.buf) {
-                    Ok(nbytes) => {
-                        trace!("Got {} bytes", nbytes);
-                        trace!("{:?}", String::from_utf8_lossy(&self.buf));
+                    Ok(_nbytes) => {
                         got_volumio_msg = true;
                     }
                     Err(ref err) if err.kind() != ErrorKind::WouldBlock => warn!("WouldBlock"),
