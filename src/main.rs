@@ -4,7 +4,6 @@ extern crate getopts;
 extern crate librespot;
 #[macro_use]
 extern crate log;
-extern crate rpassword;
 extern crate tokio_core;
 extern crate tokio_io;
 extern crate tokio_signal;
@@ -20,7 +19,7 @@ use env_logger::{fmt, Builder};
 use futures::{Async, Future, Poll, Stream};
 use sha1::{Digest, Sha1};
 use std::env;
-use std::io::{self, stderr, Write};
+use std::io::{self, Write};
 use std::mem;
 use std::path::PathBuf;
 use std::process::exit;
@@ -31,7 +30,7 @@ use tokio_core::reactor::{Core, Handle};
 use tokio_io::IoStream;
 use url::Url;
 
-use librespot::core::authentication::{get_credentials, Credentials};
+use librespot::core::authentication::Credentials;
 use librespot::core::cache::Cache;
 use librespot::core::config::{ConnectConfig, DeviceType, SessionConfig};
 use librespot::core::session::Session;
@@ -307,27 +306,20 @@ fn setup(args: &[String]) -> Setup {
         .unwrap_or(0);
 
     let name = matches.opt_str("name").unwrap();
-    let use_audio_cache = !matches.opt_present("disable-audio-cache");
-
-    let cache = matches
-        .opt_str("c")
-        .map(|cache_location| Cache::new(PathBuf::from(cache_location), use_audio_cache));
 
     let credentials = {
+        let username = matches.opt_str("username");
+        let password = matches.opt_str("password");
         let cached_credentials = cache.as_ref().and_then(Cache::credentials);
 
-        let password = |username: &String| -> String {
-            write!(stderr(), "Password for {}: ", username).unwrap();
-            stderr().flush().unwrap();
-            rpassword::read_password().unwrap()
-        };
+        match (username, password, cached_credentials) {
+            (Some(username), Some(password), _) => Some(Credentials::with_password(username, password)),
 
-        get_credentials(
-            matches.opt_str("username"),
-            matches.opt_str("password"),
-            cached_credentials,
-            password,
-        )
+            (Some(ref username), _, Some(ref credentials)) if *username == credentials.username => {
+                Some(credentials.clone())
+            }
+            (None, _, None) | _ => None,
+        }
     };
 
     let session_config = {
