@@ -11,7 +11,7 @@ use serde_json::Value;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 
 use futures::Future;
-use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -63,11 +63,13 @@ pub struct MetaPipeConfig {
 
 pub struct MetaPipe {
     pub thread_handle: Option<thread::JoinHandle<()>>,
+    task_tx: Option<Sender<Empty>>,
 }
 
 struct MetaPipeThread {
     session: Session,
     config: MetaPipeConfig,
+    task_rx: Receiver<Empty>,
     event_rx: Receiver<Event>,
     udp_socket: Option<UdpSocket>,
     token_info: Option<(Instant, Duration)>,
@@ -78,6 +80,9 @@ struct MetaPipeThread {
 const SCOPES: &str = "streaming,user-read-playback-state,user-modify-playback-state,user-read-currently-playing,user-read-private";
 const CLIENT_ID: Option<&'static str> = option_env!("CLIENT_ID");
 
+#[derive(Debug)]
+enum Empty {}
+
 impl MetaPipe {
     pub fn new(
         config: MetaPipeConfig,
@@ -85,12 +90,14 @@ impl MetaPipe {
         event_rx: Receiver<Event>,
         spirc: Arc<Spirc>,
     ) -> (MetaPipe) {
+        let (task_tx, task_rx) = channel::<Empty>();
         let handle = thread::spawn(move || {
             debug!("Starting new MetaPipe[{}]", session.session_id());
 
             let meta_thread = MetaPipeThread {
                 session: session,
                 config: config,
+                task_rx: task_rx,
                 event_rx: event_rx,
                 udp_socket: None,
                 token_info: None,
@@ -103,6 +110,7 @@ impl MetaPipe {
 
         (MetaPipe {
             thread_handle: Some(handle),
+            task_tx: Some(task_tx),
         })
     }
 }
@@ -115,17 +123,22 @@ impl MetaPipeThread {
             let mut got_volumio_msg = false;
 
             if self.session.is_invalid() {
-                warn!("Session no longer valid, shutting down MetaPipe");
-                drop(self.udp_socket.take());
-                return;
+                error!("Session no longer valid");
+                break;
+            }
+
+            match self.task_rx.try_recv() {
+                Ok(_empty) => (),
+                Err(TryRecvError::Empty) => continue,
+                Err(TryRecvError::Disconnected) => break,
             }
 
             match self.event_rx.recv_timeout(Duration::from_millis(500)) {
                 Ok(event) => self.handle_event(event),
                 Err(RecvTimeoutError::Timeout) => (),
                 Err(RecvTimeoutError::Disconnected) => {
-                    warn!("EventSender disconnected");
-                    return;
+                    error!("EventSender disconnected");
+                    break;
                 }
             }
             if let Some(token_info) = self.token_info {
@@ -149,6 +162,7 @@ impl MetaPipeThread {
                 self.handle_volumio_msg(); // Meh pass in the message
             }
         }
+        self.send_meta(&MetaMsgs::kSpSinkInactive.to_string());
     }
 
     fn init_socket(&mut self) {
@@ -319,10 +333,11 @@ impl MetaPipeThread {
 
 impl Drop for MetaPipe {
     fn drop(&mut self) {
-        warn!("Shutting down MetaPipe ... {:?}", self.thread_handle);
+        debug!("drop MetaPipe");
+        drop(self.task_tx.take());
         if let Some(handle) = self.thread_handle.take() {
             match handle.join() {
-                Ok(_) => info!("Closed MetaPipe thread"),
+                Ok(_) => debug!("Closed MetaPipe thread"),
                 Err(_) => error!("MetaPipe panicked!"),
             }
         } else {
