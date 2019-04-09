@@ -605,7 +605,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "librespot"
 version = "0.1.0"
-source = "git+https://github.com/ashthespy/librespot?branch=vollibrespot#57a6586cca42f566345f26028717efdf1a96cc04"
+source = "git+https://github.com/ashthespy/librespot?branch=vollibrespot#adffd93ad2fe09f6b7be7f26f4863437eaa33659"
 dependencies = [
  "librespot-audio 0.1.0 (git+https://github.com/ashthespy/librespot?branch=vollibrespot)",
  "librespot-connect 0.1.0 (git+https://github.com/ashthespy/librespot?branch=vollibrespot)",
@@ -620,7 +620,7 @@ dependencies = [
 [[package]]
 name = "librespot-audio"
 version = "0.1.0"
-source = "git+https://github.com/ashthespy/librespot?branch=vollibrespot#57a6586cca42f566345f26028717efdf1a96cc04"
+source = "git+https://github.com/ashthespy/librespot?branch=vollibrespot#adffd93ad2fe09f6b7be7f26f4863437eaa33659"
 dependencies = [
  "aes-ctr 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "bit-set 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -637,7 +637,7 @@ dependencies = [
 [[package]]
 name = "librespot-connect"
 version = "0.1.0"
-source = "git+https://github.com/ashthespy/librespot?branch=vollibrespot#57a6586cca42f566345f26028717efdf1a96cc04"
+source = "git+https://github.com/ashthespy/librespot?branch=vollibrespot#adffd93ad2fe09f6b7be7f26f4863437eaa33659"
 dependencies = [
  "aes-ctr 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "base64 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -664,7 +664,7 @@ dependencies = [
 [[package]]
 name = "librespot-core"
 version = "0.1.0"
-source = "git+https://github.com/ashthespy/librespot?branch=vollibrespot#57a6586cca42f566345f26028717efdf1a96cc04"
+source = "git+https://github.com/ashthespy/librespot?branch=vollibrespot#adffd93ad2fe09f6b7be7f26f4863437eaa33659"
 dependencies = [
  "aes 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "base64 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -702,7 +702,7 @@ dependencies = [
 [[package]]
 name = "librespot-metadata"
 version = "0.1.0"
-source = "git+https://github.com/ashthespy/librespot?branch=vollibrespot#57a6586cca42f566345f26028717efdf1a96cc04"
+source = "git+https://github.com/ashthespy/librespot?branch=vollibrespot#adffd93ad2fe09f6b7be7f26f4863437eaa33659"
 dependencies = [
  "byteorder 1.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -715,7 +715,7 @@ dependencies = [
 [[package]]
 name = "librespot-playback"
 version = "0.1.0"
-source = "git+https://github.com/ashthespy/librespot?branch=vollibrespot#57a6586cca42f566345f26028717efdf1a96cc04"
+source = "git+https://github.com/ashthespy/librespot?branch=vollibrespot#adffd93ad2fe09f6b7be7f26f4863437eaa33659"
 dependencies = [
  "alsa 0.2.0 (git+https://github.com/diwic/alsa-rs.git)",
  "byteorder 1.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -729,7 +729,7 @@ dependencies = [
 [[package]]
 name = "librespot-protocol"
 version = "0.1.0"
-source = "git+https://github.com/ashthespy/librespot?branch=vollibrespot#57a6586cca42f566345f26028717efdf1a96cc04"
+source = "git+https://github.com/ashthespy/librespot?branch=vollibrespot#adffd93ad2fe09f6b7be7f26f4863437eaa33659"
 dependencies = [
  "protobuf 2.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "protoc-rust 2.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1026,7 +1026,7 @@ name = "protoc"
 version = "2.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
