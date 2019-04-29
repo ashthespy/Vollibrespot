@@ -128,8 +128,8 @@ impl MetaPipeThread {
             }
 
             match self.task_rx.try_recv() {
-                Ok(_empty) => (),
-                Err(TryRecvError::Empty) => continue,
+                Ok(_) => (),
+                Err(TryRecvError::Empty) => (),
                 Err(TryRecvError::Disconnected) => break,
             }
 
