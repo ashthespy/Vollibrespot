@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 <!--
 ### Changed
 - -->
+## [0.1.6] - 2019-04-29
+- Fix high CPU usage 
+
 ## [0.1.5] - 2019-04-14
 - Exit when server connection is closed and also warn the front end
 - Better handling of dropped sessions (v2)

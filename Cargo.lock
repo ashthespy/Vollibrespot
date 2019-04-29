@@ -50,7 +50,7 @@ dependencies = [
 [[package]]
 name = "alsa"
 version = "0.2.0"
-source = "git+https://github.com/diwic/alsa-rs.git#86660415b9c0d975fb2b2ad113e259b2689a4a83"
+source = "git+https://github.com/diwic/alsa-rs.git#ef42295c493528b93606e9585eb7af768db2a1f3"
 dependencies = [
  "alsa-sys 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "bitflags 0.9.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1795,7 +1795,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "vollibrespot"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "env_logger 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.26 (registry+https://github.com/rust-lang/crates.io-index)",
