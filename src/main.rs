@@ -32,7 +32,7 @@ use url::Url;
 
 use librespot::core::authentication::Credentials;
 use librespot::core::cache::Cache;
-use librespot::core::config::{ConnectConfig, DeviceType, SessionConfig};
+use librespot::core::config::{ConnectConfig, DeviceType, SessionConfig, VolumeCtrl};
 use librespot::core::session::Session;
 use librespot::core::version;
 
@@ -230,10 +230,11 @@ fn setup(args: &[String]) -> Setup {
             "Pregain (dB) applied by volume normalisation",
             "PREGAIN",
         )
-        .optflag(
+        .optopt(
             "",
-            "logarithmic-volume",
-            "Map Spotify's volume range logarithmically to the audio mixer",
+            "volume-ctrl",
+            "Volume control type - [linear, log, fixed]. Default is linear",
+            "VOLUME_CTRL"
         )
         .optopt(
             "",
@@ -375,11 +376,17 @@ fn setup(args: &[String]) -> Setup {
             .map(|device_type| DeviceType::from_str(device_type).expect("Invalid device type"))
             .unwrap_or(DeviceType::default());
 
+        let volume_ctrl = matches
+            .opt_str("volume-ctrl")
+            .as_ref()
+            .map(|volume_ctrl| VolumeCtrl::from_str(volume_ctrl).expect("Invalid volume ctrl type"))
+            .unwrap_or(VolumeCtrl::default());
+
         ConnectConfig {
             name: name,
             device_type: device_type,
             volume: initial_volume,
-            linear_volume: !matches.opt_present("logarithmic-volume"),
+            volume_ctrl: volume_ctrl,
         }
     };
 
