@@ -30,11 +30,11 @@ use tokio_core::reactor::{Core, Handle};
 use tokio_io::IoStream;
 use url::Url;
 
+use librespot::core;
 use librespot::core::authentication::Credentials;
 use librespot::core::cache::Cache;
 use librespot::core::config::{ConnectConfig, DeviceType, SessionConfig, VolumeCtrl};
 use librespot::core::session::Session;
-use librespot::core::version;
 
 use librespot::connect::discovery::{discovery, DiscoveryStream};
 use librespot::connect::spirc::{Spirc, SpircTask};
@@ -43,11 +43,10 @@ use librespot::playback::config::{Bitrate, PlayerConfig};
 use librespot::playback::mixer::{self, Mixer, MixerConfig};
 use librespot::playback::player::Player;
 
+mod version;
+
 mod meta_pipe;
 use meta_pipe::{MetaPipe, MetaPipeConfig};
-
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-include!(concat!(env!("OUT_DIR"), "/version.rs"));
 
 fn device_id(name: &str) -> String {
     hex::encode(Sha1::digest(name.as_bytes()))
@@ -105,18 +104,6 @@ fn setup_logging(verbose: bool) {
             builder.init();
         }
     }
-}
-
-fn version() -> String {
-    format!(
-        "vollibrespot v{} {} {} (librespot {} {}) -- Built On {}",
-        VERSION,
-        short_sha(),
-        commit_date(),
-        version::short_sha(),
-        version::commit_date(),
-        short_now()
-    )
 }
 
 fn list_backends() {
@@ -248,7 +235,7 @@ fn setup(args: &[String]) -> Setup {
         Err(f) => {
             match args.last().unwrap().as_str() {
                 "-v" | "--version" => {
-                    println!("{}", version());
+                    println!("{}", version::version());
                     exit(0)
                 }
                 _ => eprintln!("error: {:?}\n{}", f, usage(&args[0], &opts)),
@@ -266,7 +253,7 @@ fn setup(args: &[String]) -> Setup {
         exit(0);
     }
 
-    println!("{}", version());
+    println!("{}", version::version());
 
     let backend = audio_backend::find(backend_name).expect("Invalid backend");
     let device = matches.opt_str("device");
@@ -327,7 +314,7 @@ fn setup(args: &[String]) -> Setup {
         let device_id = device_id(&name);
 
         SessionConfig {
-            user_agent: version::version_string(),
+            user_agent: core::version::version_string(),
             device_id: device_id,
             proxy: matches.opt_str("proxy").or(std::env::var("http_proxy").ok()).map(
                 |s| {
@@ -397,7 +384,7 @@ fn setup(args: &[String]) -> Setup {
             .unwrap_or(5030);
         MetaPipeConfig {
             port: port,
-            version: version(),
+            version: version::version(),
         }
     };
 

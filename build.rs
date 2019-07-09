@@ -1,8 +1,8 @@
 extern crate vergen;
-use vergen::vergen;
+use vergen::{generate_cargo_keys, ConstantsFlags};
 
 fn main() {
-    let flags = vergen::OutputFns::all();
-    // Generate the version.rs file in the Cargo OUT_DIR.
-    assert!(vergen(flags).is_ok());
+    let mut flags = ConstantsFlags::all();
+    flags.toggle(ConstantsFlags::REBUILD_ON_HEAD_CHANGE);
+    generate_cargo_keys(ConstantsFlags::all()).expect("Unable to generate the cargo keys!");
 }
