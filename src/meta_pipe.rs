@@ -349,5 +349,8 @@ impl Drop for MetaPipe {
 impl Drop for MetaPipeThread {
     fn drop(&mut self) {
         debug!("drop MetaPipeThread[{}]", self.session.session_id());
+        // Brute force Exit the process so that systemd can restart
+        warn!("Exiting Vollibrespot");
+        std::process::exit(1);
     }
 }
