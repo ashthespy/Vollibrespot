@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 <!--
 ### Changed
 - -->
+## [0.1.7] - 2019-07-30
+- Refine dropped session handling 
+- Add a flag (`LIBRESPOT_RATE_RESAMPLE`) to allow resampling with ALSA
+- Refactor Volume control, allow for a fixed volume option 
+
 ## [0.1.6] - 2019-04-29
 - Fix high CPU usage 
 
