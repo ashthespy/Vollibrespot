@@ -97,7 +97,7 @@ fn setup_logging(verbose: bool) {
         }
         Err(_) => {
             if verbose {
-                builder.parse_filters("mdns=debug,librespot=debug,vollibrespot=trace");
+                builder.parse_filters("mdns=info,librespot=debug,vollibrespot=trace");
             } else {
                 builder.parse_filters("mdns=info,librespot=info,vollibrespot=info");
             }
