@@ -2,8 +2,8 @@ use librespot::connect::spirc::Spirc;
 use librespot::core::events::Event;
 use librespot::core::keymaster;
 use librespot::core::session::Session;
-use librespot::core::spotify_id::SpotifyId;
-use librespot::metadata::{Album, Artist, Metadata, Track};
+use librespot::core::spotify_id::{SpotifyAudioType, SpotifyId};
+use librespot::metadata::{Album, Artist, Episode, Metadata, Show, Track};
 use std::io::ErrorKind;
 
 use serde_json;
@@ -17,10 +17,11 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 #[derive(Debug)]
+// This is not really required at this stage
 struct TrackMeta {
-    track: Track,
-    album: Album,
-    artist: Vec<Artist>,
+    track: Option<Track>,
+    album: Option<Album>,
+    artist: Option<Vec<Artist>>,
     json: Value,
 }
 
@@ -274,50 +275,81 @@ impl MetaPipeThread {
     }
 
     fn handle_track_id(&mut self, track_id: SpotifyId, position_ms: Option<u32>) {
-        let track_metadata = self.get_metadata(track_id, position_ms);
-        self.send_meta(&track_metadata.json.to_string());
-        self.send_meta(&"\r\n".to_string());
+        if let Some(track_metadata) = self.get_metadata(track_id, position_ms) {
+            self.send_meta(&track_metadata.json.to_string());
+            self.send_meta(&"\r\n".to_string());
+        }
     }
 
-    fn get_metadata(&mut self, track_id: SpotifyId, position_ms: Option<u32>) -> TrackMeta {
-        let track = Track::get(&self.session, track_id).wait().unwrap();
-        let album = Album::get(&self.session, track.album).wait().unwrap();
-        let artists = track
-            .artists
-            .iter()
-            .map(|artist| Artist::get(&self.session, *artist).wait().unwrap())
-            .collect::<Vec<Artist>>();
-        let covers = album
-            .covers
-            .iter()
-            .map(|cover| cover.to_base16())
-            .collect::<Vec<_>>();
-        let artist_ids = artists
-            .iter()
-            .map(|artist| artist.id.to_base62())
-            .collect::<Vec<_>>();
-        let artist_names = artists
-            .iter()
-            .map(|artist| artist.name.clone())
-            .collect::<Vec<String>>();
-        let json = json!(
-        { "metadata" : {
-            "track_id": track_id.to_base62(),
-            "track_name": track.name,
-            "artist_id": artist_ids,
-            "artist_name": artist_names,
-            "album_id": album.id.to_base62(),
-            "album_name": album.name,
-            "duration_ms": track.duration,
-            "albumartId": covers,
-            "position_ms": position_ms.unwrap_or(0),
-        }});
+    fn get_metadata(&mut self, spotify_id: SpotifyId, position_ms: Option<u32>) -> Option<TrackMeta> {
+        if spotify_id.audio_type == SpotifyAudioType::Track {
+            let track = Track::get(&self.session, spotify_id).wait().unwrap();
+            let album = Album::get(&self.session, track.album).wait().unwrap();
+            let artists = track
+                .artists
+                .iter()
+                .map(|artist| Artist::get(&self.session, *artist).wait().unwrap())
+                .collect::<Vec<Artist>>();
+            let covers = album
+                .covers
+                .iter()
+                .map(|cover| cover.to_base16())
+                .collect::<Vec<_>>();
+            let artist_ids = artists
+                .iter()
+                .map(|artist| artist.id.to_base62())
+                .collect::<Vec<_>>();
+            let artist_names = artists
+                .iter()
+                .map(|artist| artist.name.clone())
+                .collect::<Vec<String>>();
+            let json = json!(
+            { "metadata" : {
+                "track_id": spotify_id.to_base62(),
+                "track_name": track.name,
+                "artist_id": artist_ids,
+                "artist_name": artist_names,
+                "album_id": album.id.to_base62(),
+                "album_name": album.name,
+                "duration_ms": track.duration,
+                "albumartId": covers,
+                "position_ms": position_ms.unwrap_or(0),
+            }});
 
-        TrackMeta {
-            track: track,
-            album: album,
-            artist: artists,
-            json: json,
+            Some(TrackMeta {
+                track: Some(track),
+                album: Some(album),
+                artist: Some(artists),
+                json: json,
+            })
+        } else {
+            let episode = Episode::get(&self.session, spotify_id).wait().unwrap();
+            let show = Show::get(&self.session, episode.show).wait().unwrap();
+
+            let covers = episode
+                .covers
+                .iter()
+                .map(|cover| cover.to_base16())
+                .collect::<Vec<_>>();
+            let json = json!(
+            { "metadata" : {
+                "track_id": spotify_id.to_base62(),
+                "track_name": episode.name,
+                // "artist_id": artist_ids,
+                "artist_name": vec!(show.publisher),
+                "album_id": show.id.to_base62(),
+                "album_name": show.name,
+                "duration_ms": episode.duration,
+                "albumartId": covers,
+                "position_ms": position_ms.unwrap_or(0),
+            }});
+            info!("Json:: {:?}", json);
+            Some(TrackMeta {
+                track: None,
+                album: None,
+                artist: None,
+                json: json,
+            })
         }
     }
 
