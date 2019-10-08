@@ -1,19 +1,13 @@
-extern crate env_logger;
-extern crate futures;
-extern crate getopts;
-extern crate librespot;
+use futures;
+use getopts;
 #[macro_use]
 extern crate log;
-extern crate tokio_core;
-extern crate tokio_io;
-extern crate tokio_signal;
-extern crate url;
+use tokio_signal;
 #[macro_use]
 extern crate serde_json;
 #[macro_use]
 extern crate serde_derive;
-extern crate hex;
-extern crate sha1;
+use hex;
 
 use env_logger::{fmt, Builder};
 use futures::{Async, Future, Poll, Stream};
@@ -119,10 +113,10 @@ fn list_backends() {
 
 #[derive(Clone)]
 struct Setup {
-    backend: fn(Option<String>) -> Box<Sink>,
+    backend: fn(Option<String>) -> Box<dyn Sink>,
     device: Option<String>,
 
-    mixer: fn(Option<MixerConfig>) -> Box<Mixer>,
+    mixer: fn(Option<MixerConfig>) -> Box<dyn Mixer>,
 
     cache: Option<Cache>,
     player_config: PlayerConfig,
@@ -412,9 +406,9 @@ struct Main {
     session_config: SessionConfig,
     connect_config: ConnectConfig,
     meta_config: MetaPipeConfig,
-    backend: fn(Option<String>) -> Box<Sink>,
+    backend: fn(Option<String>) -> Box<dyn Sink>,
     device: Option<String>,
-    mixer: fn(Option<MixerConfig>) -> Box<Mixer>,
+    mixer: fn(Option<MixerConfig>) -> Box<dyn Mixer>,
     mixer_config: MixerConfig,
     handle: Handle,
 
@@ -423,7 +417,7 @@ struct Main {
 
     spirc: Option<Arc<Spirc>>,
     spirc_task: Option<SpircTask>,
-    connect: Box<Future<Item = Session, Error = io::Error>>,
+    connect: Box<dyn Future<Item = Session, Error = io::Error>>,
 
     shutdown: bool,
 
