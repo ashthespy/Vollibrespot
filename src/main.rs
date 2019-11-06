@@ -222,6 +222,11 @@ fn setup(args: &[String]) -> Setup {
             "metadata-port",
             "The port the metadata pipe uses.",
             "METADATA_PORT",
+        )
+        .optflag(
+        "",
+        "autoplay",
+        "autoplay similar songs when your music ends.",
         );
 
     let matches = match opts.parse(&args[1..]) {
@@ -368,6 +373,7 @@ fn setup(args: &[String]) -> Setup {
             device_type: device_type,
             volume: initial_volume,
             volume_ctrl: volume_ctrl,
+            autoplay: matches.opt_present("autoplay"),
         }
     };
 
