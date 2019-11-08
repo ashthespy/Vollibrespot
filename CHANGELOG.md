@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 <!--
 ### Changed
 - -->
+## [0.1.9] - 2019-11-08
+- Tweak Discovery with more logging
+- Exit on Session errors
+
 ## [0.1.8] - 2019-11-06
 - Add support for podcasts
 - Autoplay similar songs when your music ends
