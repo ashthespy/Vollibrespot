@@ -32,6 +32,7 @@ enum VolumioMsgs {
     volHeartBeat = 0x2,
     volReqToken = 0x3,
     volStop = 0x4,
+    volVol = 0x5,
 }
 
 #[derive(Debug, Serialize)]
@@ -244,7 +245,13 @@ impl MetaPipeThread {
                 info!("{:?}", volStop);
                 self.spirc.pause()
             }
-            _ => debug!("volumioMsg:: {:?}", self.buf[0]),
+            0x5 => {
+                let volume = self.buf[1]; // IntVolume
+                let vol = (volume as i32 * 0xFFFF / 100) as u16;
+                debug!("{:?}: {:?}[u8] => {:?}[u16]", volVol, volume, vol);
+                self.spirc.volume(vol);
+            }
+            _ => debug!("volumioMsg:: {:?}", self.buf),
         }
     }
 
