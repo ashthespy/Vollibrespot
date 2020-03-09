@@ -91,7 +91,7 @@ impl MetaPipe {
         session: Session,
         event_rx: Receiver<Event>,
         spirc: Arc<Spirc>,
-    ) -> (MetaPipe) {
+    ) -> MetaPipe {
         let (task_tx, task_rx) = channel::<Empty>();
         let handle = thread::spawn(move || {
             debug!("Starting new MetaPipe[{}]", session.session_id());
@@ -179,7 +179,7 @@ impl MetaPipeThread {
     }
 
     fn handle_event(&mut self, event: Event) {
-        debug!("{:?}", event);
+        info!("Event: {:?}", event);
         match event {
             Event::Load { track_id } => {
                 self.handle_track_id(track_id, None);
@@ -197,6 +197,10 @@ impl MetaPipeThread {
             } => {
                 self.send_meta(&serde_json::to_string(&MetaMsgs::state { status: "pause" }).unwrap());
                 self.handle_track_id(track_id, Some(position_ms));
+            }
+            Event::TrackChanged { track_id, .. } => {
+                // self.send_meta(&serde_json::to_string(&MetaMsgs::state { status: "play" }).unwrap());
+                self.handle_track_id(track_id, None);
             }
             Event::PlaybackStarted { .. } => {
                 self.send_meta(&MetaMsgs::kSpDeviceActive.to_string());
