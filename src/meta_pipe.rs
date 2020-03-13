@@ -110,10 +110,10 @@ impl MetaPipe {
             meta_thread.run();
         });
 
-        (MetaPipe {
+        MetaPipe {
             thread_handle: Some(handle),
             task_tx: Some(task_tx),
-        })
+        }
     }
 }
 

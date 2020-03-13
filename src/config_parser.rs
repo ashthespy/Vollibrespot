@@ -1,8 +1,29 @@
+extern crate hex;
+extern crate sha1;
 extern crate toml;
+
+use crate::meta_pipe::MetaPipeConfig;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::ErrorKind;
 use std::process::exit;
+
+//
+use librespot::core::authentication::Credentials;
+use librespot::core::cache::Cache;
+use librespot::core::config::{ConnectConfig, DeviceType, SessionConfig, VolumeCtrl};
+
+use librespot::core::version;
+use std::convert::TryFrom;
+use std::path::PathBuf;
+use std::str::FromStr;
+
+use librespot::playback::audio_backend::{self, Sink};
+use librespot::playback::config::{Bitrate, PlayerConfig};
+use librespot::playback::mixer::{self, Mixer, MixerConfig};
+//
+use sha1::{Digest, Sha1};
+use url::Url;
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "kebab-case")]
@@ -20,6 +41,7 @@ struct Playback {
     enable_volume_normalisation: Option<bool>,
     normalisation_pregain: Option<f32>,
     volume_ctrl: Option<String>,
+    autoplay: Option<bool>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -107,6 +129,7 @@ impl Default for Playback {
             enable_volume_normalisation: Some(true),
             normalisation_pregain: None,
             volume_ctrl: Some(String::from("linear")),
+            autoplay: Some(false),
         }
     }
 }
@@ -116,10 +139,10 @@ impl Default for Output {
         Output {
             device: Some(String::from("default")),
             initial_volume: Some(50),
-            mixer: Some(String::from("alsa")),
-            mixer_name: Some(String::from("PCM")),
-            mixer_card: Some(String::from("0")),
-            mixer_index: Some(0),
+            mixer: Some(String::from("softvol")),
+            mixer_name: None,
+            mixer_card: None,
+            mixer_index: None,
             mixer_linear_volume: Some(true),
             backend: Some(String::from("alsa")),
         }
@@ -150,40 +173,8 @@ impl Default for Config {
     }
 }
 
-// Copy this out later
-use crate::meta_pipe::MetaPipeConfig;
-extern crate hex;
-extern crate sha1;
-
-use librespot::core::authentication::Credentials;
-use librespot::core::cache::Cache;
-use librespot::core::config::{ConnectConfig, DeviceType, SessionConfig, VolumeCtrl};
-use librespot::core::session::Session;
-use librespot::core::version;
-use std::convert::TryFrom;
-use std::path::PathBuf;
-use std::str::FromStr;
-
-use librespot::playback::audio_backend::{self, Sink, BACKENDS};
-use librespot::playback::config::{Bitrate, PlayerConfig};
-use librespot::playback::mixer::{self, Mixer, MixerConfig};
-
-use sha1::{Digest, Sha1};
-use url::Url;
-
 fn device_id(name: &str) -> String {
     hex::encode(Sha1::digest(name.as_bytes()))
-}
-
-pub fn list_backends() {
-    println!("Available Backends : ");
-    for (&(name, _), idx) in BACKENDS.iter().zip(0..) {
-        if idx == 0 {
-            println!("- {} (default)", name);
-        } else {
-            println!("- {}", name);
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -191,10 +182,10 @@ pub struct Setup {
     pub credentials: Option<Credentials>,
     pub session_config: SessionConfig,
     pub connect_config: ConnectConfig,
-    pub backend: fn(Option<String>) -> Box<Sink>,
+    pub backend: fn(Option<String>) -> Box<dyn Sink>,
     pub device: Option<String>,
 
-    pub mixer: fn(Option<MixerConfig>) -> Box<Mixer>,
+    pub mixer: fn(Option<MixerConfig>) -> Box<dyn Mixer>,
 
     pub cache: Option<Cache>,
     pub player_config: PlayerConfig,
@@ -205,7 +196,7 @@ pub struct Setup {
 }
 
 impl Setup {
-    pub fn from_config(config: Config) -> Setup {
+    pub fn from_config(mut config: Config) -> Setup {
         // Setup cache
         let use_audio_cache = !config.misc.disable_audio_cache.unwrap_or(true);
         let cache = config
@@ -247,17 +238,17 @@ impl Setup {
                 Some(d)
             }
         });
+
         match config.output.backend.as_ref().map(AsRef::as_ref) {
             Some("pipe") => {
-                warn!("Using Pipe backend with {:?}", device);
+                warn!("Using Pipe backend with device: {}", device.as_ref().unwrap());
             }
             Some("alsa") => {
-                warn!("Using ALSA backend with {:?}", device);
+                warn!("Using Alsa backend with device: {}", device.as_ref().unwrap());
             }
             None | _ => {
                 error!("Unsupported backend");
-                list_backends();
-                exit(1);
+                exit(1)
             }
         }
         let backend = audio_backend::find(config.output.backend).unwrap();
@@ -271,6 +262,13 @@ impl Setup {
             mapped_volume: !config.output.mixer_linear_volume.unwrap_or(false),
         };
 
+        if config.output.mixer.as_ref().map(AsRef::as_ref) == Some("alsa")
+            && config.output.mixer_linear_volume != Some(false)
+            && config.playback.volume_ctrl.as_ref().map(AsRef::as_ref) != Some("linear")
+        {
+            warn!("Setting <volume-ctrl> to linear for best compatibility");
+            config.playback.volume_ctrl = Some(String::from("linear"));
+        }
         // Volume setup
         let initial_volume = config
             .output
@@ -339,9 +337,10 @@ impl Setup {
                     .playback
                     .volume_ctrl
                     .map(|volume_ctrl| {
-                        VolumeCtrl::from_str(&volume_ctrl).expect("Invalid Vomlume Ctrl method")
+                        VolumeCtrl::from_str(&volume_ctrl).expect("Invalid Volume Ctrl method")
                     })
                     .unwrap_or(VolumeCtrl::default()),
+                autoplay: config.playback.autoplay.unwrap_or(false),
             }
         };
         let meta_config = {
