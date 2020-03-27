@@ -11,21 +11,21 @@ path = "src/main.rs"
 doc = false
 
 [dependencies]
-env_logger =  {version = "0.6", default-features = false, features = ["termcolor","humantime","atty"]} 
-futures = "0.1.28"
-getopts = "0.2.19"
-hyper = "0.12.32"
-log = "0.4.6"
-tokio-core = "0.1.17"
-tokio-io = "0.1.12"
-tokio-signal = "0.2.7"
-url = "2.1.0"
-serde = "1.0.94"
-serde_derive = "1.0.94"
-serde_json = "1.0.40"
-sha-1 = "0.8.1"
-hex = "0.3.2"
-toml = "0.5.1"
+env_logger =  {version = "0.7", default-features = false, features = ["termcolor","humantime","atty"]} 
+futures = "0.1"
+getopts = "0.2"
+hyper = "0.12"
+log = "0.4"
+tokio = "0.1"
+tokio-io = "0.1"
+tokio-signal = "0.2"
+url = "2.1"
+serde = "1.0"
+serde_derive = "1.0"
+serde_json = "1.0"
+sha-1 = "0.8"
+hex = "0.3"
+toml = "0.5"
 
 [dependencies.librespot]
 git = "https://github.com/ashthespy/librespot"

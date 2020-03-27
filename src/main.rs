@@ -19,7 +19,16 @@ use std::process::exit;
 use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::time::Instant;
-use tokio_core::reactor::{Core, Handle};
+
+// Multi thread
+// use tokio::{reactor::Handle, runtime::Runtime};
+
+// Single thread
+use tokio::runtime::{
+    current_thread,
+    current_thread::{Handle, Runtime},
+};
+
 use tokio_io::IoStream;
 
 use librespot::core::authentication::Credentials;
@@ -86,9 +95,9 @@ fn setup_logging(verbose: bool) {
         }
         Err(_) => {
             if verbose {
-                builder.parse_filters("mdns=info,librespot=debug,vollibrespot=trace");
+                builder.parse_filters("libmdns=info,librespot=debug,vollibrespot=trace");
             } else {
-                builder.parse_filters("mdns=info,librespot=info,vollibrespot=info");
+                builder.parse_filters("libmdns=info,librespot=info,vollibrespot=info");
             }
             builder.init();
         }
@@ -214,7 +223,9 @@ impl Main {
             let config = task.connect_config.clone();
             let device_id = task.session_config.device_id.clone();
 
-            task.discovery = Some(discovery(&handle, config, device_id, setup.zeroconf_port).unwrap());
+            task.discovery = Some(
+                discovery(&handle, config, device_id, setup.zeroconf_port).expect("Discovery error!"),
+            );
         }
 
         if let Some(credentials) = setup.credentials {
@@ -234,7 +245,8 @@ impl Main {
         self.spirc = None;
         let task = mem::replace(&mut self.spirc_task, None);
         if let Some(task) = task {
-            self.handle.spawn(task);
+            current_thread::spawn(Box::new(task));
+            // tokio::spawn(Box::new(task));
         }
     }
 }
@@ -366,10 +378,14 @@ fn main() {
     if env::var("RUST_BACKTRACE").is_err() {
         env::set_var("RUST_BACKTRACE", "full")
     }
-    let mut core = Core::new().unwrap();
-    let handle = core.handle();
-
     let args: Vec<String> = std::env::args().collect();
+    let mut runtime = Runtime::new().unwrap();
 
-    core.run(Main::new(handle, setup(&args))).unwrap()
+    // Single thread
+    let handle = runtime.handle();
+    //  Multithread
+    // let handle = Handle::default();
+
+    runtime.block_on(Main::new(handle, setup(&args))).unwrap();
+    runtime.run().unwrap();
 }
