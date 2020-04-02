@@ -42,6 +42,7 @@ struct Playback {
     normalisation_pregain: Option<f32>,
     volume_ctrl: Option<String>,
     autoplay: Option<bool>,
+    gapless: Option<bool>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -130,6 +131,7 @@ impl Default for Playback {
             normalisation_pregain: None,
             volume_ctrl: Some(String::from("linear")),
             autoplay: Some(false),
+            gapless: Some(true),
         }
     }
 }
@@ -196,6 +198,7 @@ pub struct Setup {
 }
 
 impl Setup {
+    // Todo: currently the default values are duplicated
     pub fn from_config(mut config: Config) -> Setup {
         // Setup cache
         let use_audio_cache = !config.misc.disable_audio_cache.unwrap_or(true);
@@ -316,11 +319,12 @@ impl Setup {
 
             PlayerConfig {
                 bitrate: bitrate,
-                normalisation: config.playback.enable_volume_normalisation.is_some(),
+                normalisation: config.playback.enable_volume_normalisation.unwrap_or(false),
                 normalisation_pregain: config
                     .playback
                     .normalisation_pregain
                     .unwrap_or(PlayerConfig::default().normalisation_pregain),
+                gapless: config.playback.gapless.unwrap_or(true),
             }
         };
 
