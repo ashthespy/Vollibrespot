@@ -188,6 +188,7 @@ struct Main {
 
     session: Option<Session>,
     meta_pipe: Option<MetaPipe>,
+    reconnecting: bool,
 }
 
 impl Main {
@@ -217,6 +218,7 @@ impl Main {
 
             session: None,
             meta_pipe: None,
+            reconnecting: false,
         };
 
         if setup.enable_discovery {
@@ -262,6 +264,7 @@ impl Future for Main {
             if let Some(Async::Ready(Some(creds))) = self.discovery.as_mut().map(|d| d.poll().unwrap()) {
                 if let Some(ref spirc) = self.spirc {
                     spirc.shutdown();
+                    self.reconnecting = true;
                 }
                 self.auto_connect_times.clear();
                 self.credentials(creds);
@@ -277,7 +280,6 @@ impl Future for Main {
                     let mixer = (self.mixer)(Some(mixer_config));
                     let player_config = self.player_config.clone();
                     let connect_config = self.connect_config.clone();
-                    let meta_config = self.meta_config.clone();
 
                     // For event hooks
                     let (event_sender, event_receiver) = channel();
@@ -297,14 +299,21 @@ impl Future for Main {
 
                     let spirc_ = Arc::new(spirc);
 
+                    // Todo: improve this
+                    // if !self.reconnecting {
+                    let meta_config = self.meta_config.clone();
                     let meta_pipe =
                         MetaPipe::new(meta_config, session.clone(), event_receiver, spirc_.clone());
+                    self.meta_pipe = Some(meta_pipe);
+                    // } else {
+                    //     self.meta_pipe
+                    //         .reconnect(session.clone(), event_receiver, spirc_.clone());
+                    // }
 
                     self.spirc = Some(spirc_);
                     self.spirc_task = Some(spirc_task);
                     self.player_event_channel = Some(event_channel);
                     self.session = Some(session);
-                    self.meta_pipe = Some(meta_pipe);
 
                     progress = true;
                 }
@@ -338,6 +347,7 @@ impl Future for Main {
                     } else {
                         warn!("Spirc shut down unexpectedly");
                         drop_spirc_and_try_to_reconnect = true;
+                        self.reconnecting = true;
                     }
                     progress = true;
                 }

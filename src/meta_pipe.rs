@@ -65,13 +65,17 @@ pub struct MetaPipeConfig {
 
 pub struct MetaPipe {
     pub thread_handle: Option<thread::JoinHandle<()>>,
-    task_tx: Option<Sender<Empty>>,
+    task_tx: Option<Sender<MetaThreadTask>>,
+}
+
+enum MetaThreadTask {
+    Reconnect,
 }
 
 struct MetaPipeThread {
     session: Session,
     config: MetaPipeConfig,
-    task_rx: Receiver<Empty>,
+    task_rx: Receiver<MetaThreadTask>,
     event_rx: Receiver<Event>,
     udp_socket: Option<UdpSocket>,
     token_info: Option<(Instant, Duration)>,
@@ -92,7 +96,7 @@ impl MetaPipe {
         event_rx: Receiver<Event>,
         spirc: Arc<Spirc>,
     ) -> MetaPipe {
-        let (task_tx, task_rx) = channel::<Empty>();
+        let (task_tx, task_rx) = channel::<MetaThreadTask>();
         let handle = thread::spawn(move || {
             debug!("Starting new MetaPipe[{}]", session.session_id());
 
@@ -113,6 +117,16 @@ impl MetaPipe {
         MetaPipe {
             thread_handle: Some(handle),
             task_tx: Some(task_tx),
+        }
+    }
+
+    #[allow(dead_code)]
+    #[allow(unused_variables)]
+    pub fn reconnect(&mut self, session: Session, event_rx: Receiver<Event>, spirc: Arc<Spirc>) {
+        warn!("Reconnecting with SessionID: {}", session.session_id());
+        if let Some(tx) = &self.task_tx {
+            tx.send(MetaThreadTask::Reconnect)
+                .expect("Failed reconnecting MetaPipe")
         }
     }
 }
@@ -139,7 +153,8 @@ impl MetaPipeThread {
                 Ok(event) => self.handle_event(event),
                 Err(RecvTimeoutError::Timeout) => (),
                 Err(RecvTimeoutError::Disconnected) => {
-                    error!("EventSender disconnected");
+                    warn!("EventSender disconnected");
+                    self.send_meta(&MetaMsgs::kSpPlaybackNotifyBecameInactive.to_string());
                     break;
                 }
             }
@@ -393,7 +408,7 @@ impl Drop for MetaPipeThread {
     fn drop(&mut self) {
         debug!("drop MetaPipeThread[{}]", self.session.session_id());
         // Brute force Exit the process so that systemd can restart
-        warn!("Exiting Vollibrespot");
-        std::process::exit(1);
+        // warn!("Exiting Vollibrespot");
+        // std::process::exit(1);
     }
 }
