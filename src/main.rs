@@ -1,54 +1,46 @@
-use futures;
-use getopts;
 #[macro_use]
 extern crate log;
-use tokio_signal;
-#[macro_use]
-extern crate serde_json;
-#[macro_use]
-extern crate serde_derive;
-
 use env_logger::{fmt, Builder};
-use futures::sync::mpsc::UnboundedReceiver;
-use futures::{Async, Future, Poll, Stream};
-
-use std::env;
-use std::io::{self, Write};
-use std::mem;
-use std::process::exit;
-use std::sync::mpsc::channel;
-use std::sync::Arc;
-use std::time::Instant;
-
-// Multi thread
-// use tokio::{reactor::Handle, runtime::Runtime};
-
-// Single thread
+use futures::{sync::mpsc::UnboundedReceiver, Async, Future, Poll, Stream};
+use librespot::{
+    connect::{
+        discovery::{discovery, DiscoveryStream},
+        spirc::{Spirc, SpircTask},
+    },
+    core::{
+        authentication::Credentials,
+        cache::Cache,
+        config::{ConnectConfig, SessionConfig},
+        session::Session,
+    },
+    playback::{
+        audio_backend::{Sink, BACKENDS},
+        config::PlayerConfig,
+        mixer::{Mixer, MixerConfig},
+        player::{Player, PlayerEvent},
+    },
+};
+use std::{
+    env,
+    io::{self, Write},
+    mem,
+    process::exit,
+    sync::{mpsc::channel, Arc},
+    time::Instant,
+};
 use tokio::runtime::{
     current_thread,
     current_thread::{Handle, Runtime},
 };
+use tokio_signal::{ctrl_c, IoStream};
 
-use tokio_io::IoStream;
-
-use librespot::core::authentication::Credentials;
-use librespot::core::cache::Cache;
-use librespot::core::config::{ConnectConfig, SessionConfig};
-use librespot::core::session::Session;
-
-use librespot::connect::discovery::{discovery, DiscoveryStream};
-use librespot::connect::spirc::{Spirc, SpircTask};
-use librespot::playback::audio_backend::{Sink, BACKENDS};
-use librespot::playback::config::PlayerConfig;
-use librespot::playback::mixer::{Mixer, MixerConfig};
-use librespot::playback::player::{Player, PlayerEvent};
-
-mod version;
-
-mod meta_pipe;
-use meta_pipe::{MetaPipe, MetaPipeConfig};
 mod config_parser;
-use config_parser::{Config, Setup};
+mod meta_pipe;
+mod version;
+use crate::{
+    config_parser::{Config, Setup},
+    meta_pipe::{MetaPipe, MetaPipeConfig},
+};
 
 fn usage(program: &str, opts: &getopts::Options) -> String {
     let brief = format!("Usage: {} [options]", program);
@@ -157,7 +149,9 @@ fn setup(args: &[String]) -> Setup {
 
     println!("{}", version::version());
 
-    let config_file = matches.opt_str("config").unwrap_or(String::from("config.toml"));
+    let config_file = matches
+        .opt_str("config")
+        .unwrap_or_else(|| String::from("config.toml"));
     Setup::from_config(Config::new(&config_file))
 }
 
@@ -212,7 +206,7 @@ impl Main {
             shutdown: false,
             last_credentials: None,
             auto_connect_times: Vec::new(),
-            signal: Box::new(tokio_signal::ctrl_c().flatten_stream()),
+            signal: Box::new(ctrl_c().flatten_stream()),
 
             player_event_channel: None,
 
@@ -301,9 +295,12 @@ impl Future for Main {
 
                     // Todo: improve this
                     // if !self.reconnecting {
-                    let meta_config = self.meta_config.clone();
-                    let meta_pipe =
-                        MetaPipe::new(meta_config, session.clone(), event_receiver, spirc_.clone());
+                    let meta_pipe = MetaPipe::new(
+                        self.meta_config.clone(),
+                        session.clone(),
+                        event_receiver,
+                        spirc_.clone(),
+                    );
                     self.meta_pipe = Some(meta_pipe);
                     // } else {
                     //     self.meta_pipe
@@ -328,11 +325,13 @@ impl Future for Main {
                 info!("Ctrl-C received");
                 if !self.shutdown {
                     if let Some(ref spirc) = self.spirc {
+                        info!("Shutting down spric");
                         spirc.shutdown();
                     }
 
                     self.shutdown = true;
                 } else {
+                    info!("Exiting..");
                     return Ok(Async::Ready(()));
                 }
 

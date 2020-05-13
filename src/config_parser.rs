@@ -1,28 +1,29 @@
-extern crate hex;
-extern crate sha1;
-extern crate toml;
-
-use crate::meta_pipe::MetaPipeConfig;
-use std::fs::File;
-use std::io::prelude::*;
-use std::io::ErrorKind;
-use std::process::exit;
-
-//
-use librespot::core::authentication::Credentials;
-use librespot::core::cache::Cache;
-use librespot::core::config::{ConnectConfig, DeviceType, SessionConfig, VolumeCtrl};
-
-use librespot::core::version;
-use std::convert::TryFrom;
-use std::path::PathBuf;
-use std::str::FromStr;
-
-use librespot::playback::audio_backend::{self, Sink};
-use librespot::playback::config::{Bitrate, PlayerConfig};
-use librespot::playback::mixer::{self, Mixer, MixerConfig};
-//
-use sha1::{Digest, Sha1};
+use crate::{meta_pipe::MetaPipeConfig, version};
+use hex;
+use librespot::{
+    core::{
+        self,
+        authentication::Credentials,
+        cache::Cache,
+        config::{ConnectConfig, DeviceType, SessionConfig, VolumeCtrl},
+    },
+    playback::{
+        audio_backend::{self, Sink},
+        config::{Bitrate, PlayerConfig},
+        mixer::{self, Mixer, MixerConfig},
+    },
+};
+use serde::Deserialize;
+use sha1::{self, Digest, Sha1};
+use std::{
+    convert::TryFrom,
+    fs::File,
+    io::{prelude::*, ErrorKind},
+    path::PathBuf,
+    process::exit,
+    str::FromStr,
+};
+use toml;
 use url::Url;
 
 #[derive(Deserialize, Debug)]
@@ -210,7 +211,7 @@ impl Setup {
         let device_name = config
             .authentication
             .device_name
-            .unwrap_or(String::from("Vollibrespot"));
+            .unwrap_or_else(|| String::from("Vollibrespot"));
 
         let credentials = {
             let username = config.authentication.username;
@@ -219,7 +220,7 @@ impl Setup {
 
             match (username, password, cached_credentials) {
                 (Some(username), Some(password), _) => {
-                    if username.len() > 0 && password.len() > 0 {
+                    if !username.is_empty() && !password.is_empty() {
                         Some(Credentials::with_password(username, password))
                     } else {
                         None
@@ -229,12 +230,12 @@ impl Setup {
                 (Some(ref username), _, Some(ref credentials)) if *username == credentials.username => {
                     Some(credentials.clone())
                 }
-                (None, _, None) | _ => None,
+                _ => None,
             }
         };
 
         let device = config.output.device.and_then(|d| {
-            if d.len() == 0 {
+            if d.is_empty() {
                 error!("Invalid output device!");
                 exit(1);
             } else {
@@ -249,7 +250,7 @@ impl Setup {
             Some("alsa") => {
                 warn!("Using Alsa backend with device: {}", device.as_ref().unwrap());
             }
-            None | _ => {
+            _ => {
                 error!("Unsupported backend");
                 exit(1)
             }
@@ -259,8 +260,11 @@ impl Setup {
         let mixer = mixer::find(config.output.mixer.as_ref()).expect("Invalid mixer");
 
         let mixer_config = MixerConfig {
-            card: config.output.mixer_card.unwrap_or(String::from("default")),
-            mixer: config.output.mixer_name.unwrap_or(String::from("PCM")),
+            card: config
+                .output
+                .mixer_card
+                .unwrap_or_else(|| String::from("default")),
+            mixer: config.output.mixer_name.unwrap_or_else(|| String::from("PCM")),
             index: config.output.mixer_index.unwrap_or(0),
             mapped_volume: !config.output.mixer_linear_volume.unwrap_or(false),
         };
@@ -290,9 +294,9 @@ impl Setup {
         // Session config
         let session_config =
             SessionConfig {
-            user_agent: version::version_string(),
+            user_agent: core::version::version_string(),
             device_id: device_id(&device_name),
-            proxy: config.misc.proxy.or(std::env::var("http_proxy").ok()).map(
+            proxy: config.misc.proxy.or_else(|| std::env::var("http_proxy").ok()).map(
                 |s| {
                     match Url::parse(&s) {
                 Ok(url) => {
@@ -315,15 +319,12 @@ impl Setup {
                 .playback
                 .bitrate
                 .map(|bitrate| Bitrate::try_from(bitrate).expect("Invalid bitrate"))
-                .unwrap_or(Bitrate::default());
+                .unwrap_or_default();
 
             PlayerConfig {
-                bitrate: bitrate,
+                bitrate,
                 normalisation: config.playback.enable_volume_normalisation.unwrap_or(false),
-                normalisation_pregain: config
-                    .playback
-                    .normalisation_pregain
-                    .unwrap_or(PlayerConfig::default().normalisation_pregain),
+                normalisation_pregain: config.playback.normalisation_pregain.unwrap_or_default(),
                 gapless: config.playback.gapless.unwrap_or(true),
             }
         };
@@ -335,7 +336,7 @@ impl Setup {
                     .misc
                     .device_type
                     .map(|device_type| DeviceType::from_str(&device_type).expect("Invalid device type"))
-                    .unwrap_or(DeviceType::default()),
+                    .unwrap_or_default(),
                 volume: initial_volume,
                 volume_ctrl: config
                     .playback
@@ -343,32 +344,32 @@ impl Setup {
                     .map(|volume_ctrl| {
                         VolumeCtrl::from_str(&volume_ctrl).expect("Invalid Volume Ctrl method")
                     })
-                    .unwrap_or(VolumeCtrl::default()),
+                    .unwrap_or_default(),
                 autoplay: config.playback.autoplay.unwrap_or(false),
             }
         };
         let meta_config = {
             MetaPipeConfig {
                 port: config.misc.metadata_port.unwrap_or(5030),
-                version: String::from("vollibrespot v{} {} {} (librespot {} {}) -- Built On {}"),
+                version: format!("vollibrespot v{}", version::semver()),
             }
         };
         let enable_discovery = config.authentication.shared.unwrap_or(true);
 
         Setup {
-            cache: cache,
-            credentials: credentials,
-            backend: backend,
-            device: device,
-            mixer: mixer,
-            mixer_config: mixer_config,
-            session_config: session_config,
+            cache,
+            credentials,
+            backend,
+            device,
+            mixer,
+            mixer_config,
+            session_config,
 
-            player_config: player_config,
-            connect_config: connect_config,
-            meta_config: meta_config,
-            enable_discovery: enable_discovery,
-            zeroconf_port: zeroconf_port,
+            player_config,
+            connect_config,
+            meta_config,
+            enable_discovery,
+            zeroconf_port,
         }
     }
 }

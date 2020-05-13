@@ -1,23 +1,29 @@
-use librespot::connect::spirc::Spirc;
-use librespot::core::events::Event;
-use librespot::core::keymaster;
-use librespot::core::session::Session;
-use librespot::core::spotify_id::{SpotifyAudioType, SpotifyId};
-use librespot::metadata::{Album, Artist, Episode, Metadata, Show, Track};
-use std::io::ErrorKind;
-
-use serde_json;
-use serde_json::Value;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
-
 use futures::Future;
-use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender, TryRecvError};
-use std::sync::Arc;
-use std::thread;
-use std::time::{Duration, Instant};
+use librespot::{
+    connect::spirc::Spirc,
+    core::{
+        events::Event,
+        keymaster,
+        session::Session,
+        spotify_id::{SpotifyAudioType, SpotifyId},
+    },
+    metadata::{Album, Artist, Episode, Metadata, Show, Track},
+};
+use serde::Serialize;
+use serde_json::{json, Value};
+use std::{
+    io::ErrorKind,
+    net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
+    sync::{
+        mpsc::{channel, Receiver, RecvTimeoutError, Sender, TryRecvError},
+        Arc,
+    },
+    thread,
+    time::{Duration, Instant},
+};
 
-#[derive(Debug)]
 // This is not really required at this stage
+#[derive(Debug)]
 struct TrackMeta {
     track: Option<Track>,
     album: Option<Album>,
@@ -25,21 +31,26 @@ struct TrackMeta {
     json: Value,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 #[allow(non_camel_case_types)]
-enum VolumioMsgs {
-    volHello = 0x1,
-    volHeartBeat = 0x2,
-    volReqToken = 0x3,
-    volStop = 0x4,
-    volVol = 0x5,
+pub enum PipeMsgs {
+    Hello = 0x1,
+    HeartBeat = 0x2,
+    ReqToken = 0x3,
+    Pause = 0x4,
+    Play = 0x5,
+    PlayPause = 0x6,
+    Next = 0x7,
+    Prev = 0x8,
+    Volume = 0x9,
 }
 
 #[derive(Debug, Serialize)]
 #[allow(non_camel_case_types)]
 pub enum MetaMsgs<'a> {
-    kSpPlaybackNotifyBecameActive,
-    kSpPlaybackNotifyBecameInactive,
+    kSpPlaybackLoading,
+    kSpPlaybackActive,
+    kSpPlaybackInactive,
     kSpDeviceActive,
     kSpDeviceInactive,
     kSpSinkActive,
@@ -48,12 +59,12 @@ pub enum MetaMsgs<'a> {
     position_ms(u32),
     volume(f64),
     state { status: &'a str },
-    // metadata(String),
+    pong(PipeMsgs), // metadata(String),
 }
 
-impl<'a> MetaMsgs<'a> {
-    fn to_string(&self) -> String {
-        format!("{:?}", self)
+impl<'a> std::fmt::Display for MetaMsgs<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self)
     }
 }
 
@@ -101,14 +112,14 @@ impl MetaPipe {
             debug!("Starting new MetaPipe[{}]", session.session_id());
 
             let meta_thread = MetaPipeThread {
-                session: session,
-                config: config,
-                task_rx: task_rx,
-                event_rx: event_rx,
+                session,
+                config,
+                task_rx,
+                event_rx,
                 udp_socket: None,
                 token_info: None,
                 buf: [0u8; 2],
-                spirc: spirc,
+                spirc,
             };
 
             meta_thread.run();
@@ -154,7 +165,7 @@ impl MetaPipeThread {
                 Err(RecvTimeoutError::Timeout) => (),
                 Err(RecvTimeoutError::Disconnected) => {
                     warn!("EventSender disconnected");
-                    self.send_meta(&MetaMsgs::kSpPlaybackNotifyBecameInactive.to_string());
+                    self.send_meta(&MetaMsgs::kSpPlaybackInactive.to_string());
                     break;
                 }
             }
@@ -217,23 +228,19 @@ impl MetaPipeThread {
                 // self.send_meta(&serde_json::to_string(&MetaMsgs::state { status: "play" }).unwrap());
                 self.handle_track_id(track_id, None);
             }
-            Event::PlaybackStarted { .. } => {
-                self.send_meta(&MetaMsgs::kSpDeviceActive.to_string());
+            Event::PlaybackLoading { .. } => {
                 // self.handle_track_id(track_id, None);
+                self.send_meta(&MetaMsgs::kSpPlaybackLoading.to_string())
             }
+            Event::PlaybackStarted { .. } => self.send_meta(&MetaMsgs::kSpPlaybackActive.to_string()),
             Event::SessionActive { .. } => {
                 self.handle_session_active();
-                self.send_meta(&MetaMsgs::kSpPlaybackNotifyBecameActive.to_string())
+                self.send_meta(&MetaMsgs::kSpDeviceActive.to_string())
             }
-            Event::SessionInactive { .. } => {
-                self.send_meta(&MetaMsgs::kSpPlaybackNotifyBecameInactive.to_string())
-            }
+            Event::SessionInactive { .. } => self.send_meta(&MetaMsgs::kSpDeviceInactive.to_string()),
             Event::SinkActive { .. } => self.send_meta(&MetaMsgs::kSpSinkActive.to_string()),
             Event::SinkInactive { .. } => self.send_meta(&MetaMsgs::kSpSinkInactive.to_string()),
-            Event::PlaybackStopped { .. } => {
-                // self.handle_track_id(track_id, None);
-                self.send_meta(&MetaMsgs::kSpDeviceInactive.to_string());
-            }
+            Event::PlaybackStopped { .. } => self.send_meta(&MetaMsgs::kSpPlaybackInactive.to_string()),
             Event::Seek { position_ms } => {
                 self.send_meta(&serde_json::to_string(&MetaMsgs::position_ms(position_ms)).unwrap());
             }
@@ -248,29 +255,46 @@ impl MetaPipeThread {
     }
 
     fn handle_volumio_msg(&mut self) {
-        use self::VolumioMsgs::*;
+        use self::PipeMsgs::*;
         match self.buf[0] {
             0x1 => {
-                info!("{:?}", volHello);
+                info!("{:?}", Hello);
             }
             0x2 => {
-                info!("{:?}", volHeartBeat);
+                info!("{:?}", HeartBeat);
             }
             0x3 => {
-                info!("{:?}", volReqToken);
+                info!("{:?}", ReqToken);
                 self.request_access_token()
             }
             0x4 => {
-                info!("{:?}", volStop);
-                self.spirc.pause()
+                info!("{:?}", Pause);
+                self.spirc.pause();
+                self.send_meta(&serde_json::to_string(&MetaMsgs::pong(Pause)).unwrap());
             }
             0x5 => {
+                info!("{:?}", Play);
+                self.spirc.play();
+            }
+            0x6 => {
+                info!("{:?}", PlayPause);
+                self.spirc.play_pause();
+            }
+            0x7 => {
+                info!("{:?}", Next);
+                self.spirc.next();
+            }
+            0x8 => {
+                info!("{:?}", Prev);
+                self.spirc.prev();
+            }
+            0x9 => {
                 let volume = self.buf[1]; // IntVolume
                 let vol = (volume as i32 * 0xFFFF / 100) as u16;
-                debug!("{:?}: {:?}[u8] => {:?}[u16]", volVol, volume, vol);
+                debug!("{:?}: {:?}[u8] => {:?}[u16]", Volume, volume, vol);
                 self.spirc.volume(vol);
             }
-            _ => debug!("volumioMsg:: {:?}", self.buf),
+            _ => debug!("PipeMsg:: {:?}", self.buf),
         }
     }
 
@@ -346,7 +370,7 @@ impl MetaPipeThread {
                 track: Some(track),
                 album: Some(album),
                 artist: Some(artists),
-                json: json,
+                json,
             })
         } else {
             let episode = Episode::get(&self.session, spotify_id).wait().unwrap();
@@ -374,7 +398,7 @@ impl MetaPipeThread {
                 track: None,
                 album: None,
                 artist: None,
-                json: json,
+                json,
             })
         }
     }
