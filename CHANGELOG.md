@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 <!--
 ### Changed
 - -->
+## [0.2.1] - 2020-05-15
+- Refactor and expose more metadata (breaking!)
+- Skip unplayable tracks instead of stopping 
+- Fetch context for Spotify Collection types as well
+- Autoplay - `uid` is optional for playlist stations 
+
 ## [0.2.0] - 2020-04-17
 - Use a toml based configuration file 
 - Enabled gapless playback as default 
