@@ -20,12 +20,16 @@ jobs:
       - run:
           name: Compile
           command: |
-            cargo build --verbose
-            /build/debug/vollibrespot --version
-            /build/debug/vollibrespot --version > version
+            cargo build --release --verbose
+            /build/release/vollibrespot --version
+            /build/release/vollibrespot --version > version
+            tar czf vollibrespot-x86_64.tar.xz \
+              -C /build/release/ vollibrespot
       - persist_to_workspace:
           root: .
-          paths: version
+          paths: 
+            - version
+            - '*.tar*'
       - save_cache:
           key: cargo-cache-{{ .Environment.cache_ver }}
           paths:
@@ -50,7 +54,8 @@ jobs:
           destination: vollibrespot-armv7l.tar.xz
       - persist_to_workspace:
           root: .
-          paths: '*.tar*'
+          paths: 
+            - '*.tar*'
       - save_cache:
           key: cargo-build-armv7-unknown-linux-gnueabihf-{{ .Environment.cache_ver }}
           paths:
@@ -75,7 +80,8 @@ jobs:
           destination: vollibrespot-armv6l.tar.xz
       - persist_to_workspace:
           root: .
-          paths: '*.tar*'
+          paths: 
+            - '*.tar*'
       - save_cache:
           key: cargo-build-arm-unknown-linux-gnueabihf-{{ .Environment.cache_ver }}
           paths:
@@ -100,7 +106,8 @@ jobs:
           destination: vollibrespot-aarch64.tar.xz
       - persist_to_workspace:
           root: .
-          paths: '*.tar*'
+          paths: 
+            - '*.tar*'
       - save_cache:
           key: cargo-build-aarch64-unknown-linux-gnu-{{ .Environment.cache_ver }}
           paths:
@@ -126,7 +133,8 @@ jobs:
           destination: vollibrespot-i686.tar.xz
       - persist_to_workspace:
           root: .
-          paths: '*.tar*'
+          paths: 
+            - '*.tar*'
       - save_cache:
           key: cargo-build-i686-unknown-linux-gnu-{{ .Environment.cache_ver }}
           paths:

@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 <!--
 ### Changed
 - -->
+## [0.2.3] - 2021-06-04
+- Add `x86_64` to CI
+- Bump dependencies 
+
 ## [0.2.2] - 2020-10-07
 - Fix Android/iOS track skipping display issues 
 - Set an explicit period size to reduce CUP load
