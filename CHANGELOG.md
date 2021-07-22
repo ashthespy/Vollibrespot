@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 <!--
 ### Changed
 - -->
+## [0.2.4] - 2021-07-22
+- (#7) Add additional token scope
+- Bump dependencies 
+
 ## [0.2.3] - 2021-06-04
 - Add `x86_64` to CI
 - Bump dependencies 
