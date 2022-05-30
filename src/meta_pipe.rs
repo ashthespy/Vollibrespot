@@ -94,7 +94,7 @@ struct MetaPipeThread {
     spirc: Arc<Spirc>,
 }
 
-const SCOPES: &str = "streaming,user-read-playback-state,user-modify-playback-state,user-read-currently-playing,user-read-private,user-library-modify,user-top-read,user-read-recently-played,user-library-read,playlist-read-private,playlist-read-collaborative,app-remote-control";
+const SCOPES: &str = "streaming,user-read-playback-state,user-modify-playback-state,user-read-currently-playing,user-read-private,user-library-modify,user-top-read,user-read-recently-played,user-library-read,playlist-read-private,playlist-read-collaborative";
 const CLIENT_ID: Option<&'static str> = option_env!("CLIENT_ID");
 
 #[derive(Debug)]
