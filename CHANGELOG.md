@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - -->
 ## [0.2.4] - 2021-07-22
+- (#10) Add browsing token scopes
+
+## [0.2.4] - 2021-07-22
 - (#7) Add additional token scope
 - Bump dependencies 
 
