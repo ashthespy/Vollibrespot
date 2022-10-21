@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 <!--
 ### Changed
 - -->
-## [0.2.4] - 2021-07-22
+## [0.2.5] - 2022-05-31
 - (#10) Add browsing token scopes
 
 ## [0.2.4] - 2021-07-22
