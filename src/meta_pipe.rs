@@ -364,6 +364,8 @@ impl MetaPipeThread {
                 "duration_ms": track.duration,
                 "albumartId": covers,
                 "position_ms": position_ms.unwrap_or(0),
+                "album_release_date": album.date,
+                "track_number": track.number,
             }});
 
             Some(TrackMeta {
